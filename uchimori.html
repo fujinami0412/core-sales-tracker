@@ -4174,15 +4174,7 @@
 
             document.getElementById('gasUrl').value = data.settings.gasUrl || '';
 
-            // インスタ設定（全体共通）
-            const ig = data.settings.instagram || {};
-            document.getElementById('igGoalSend').value = ig.send || 0;
-            document.getElementById('igGoalReply').value = ig.reply || 0;
-            document.getElementById('igGoalOffer').value = ig.offer || 0;
-            document.getElementById('igGoalApoGet').value = ig.apoGet || 0;
-            document.getElementById('igGoalApoExec').value = ig.apoExec || 0;
-            document.getElementById('igGoalDoinExec').value = ig.doinExec || 0;
-            document.getElementById('igGoalSeiyaku').value = ig.seiyaku || 0;
+            // インスタ設定はloadMemberSettingsでメンバーごとに読み込み済み
 
             // 現在のユーザー選択ドロップダウンを更新
             try {
@@ -4241,7 +4233,8 @@
 
         function disableInputs(disabled) {
             const inputIds = ['bPost', 'bApoGet', 'bApoExec', 'bDoinGet', 'bDoinExec', 'bMendan', 'bSeiyaku',
-                'mPost', 'mApoGet', 'mApoExec', 'mDoinGet', 'mDoinExec', 'mMendan', 'mMendanExec', 'mSeiyaku'];
+                'mPost', 'mApoGet', 'mApoExec', 'mDoinGet', 'mDoinExec', 'mMendan', 'mMendanExec', 'mSeiyaku',
+                'igGoalSend', 'igGoalReply', 'igGoalOffer', 'igGoalApoGet', 'igGoalApoExec', 'igGoalDoinExec', 'igGoalSeiyaku'];
             inputIds.forEach(id => {
                 const el = document.getElementById(id);
                 if (el) {
@@ -4303,10 +4296,11 @@
 
         function loadMemberSettings(memberId) {
             console.log('loadMemberSettings呼び出し:', memberId);
-            let b, mo;
+            let b, mo, ig;
             if (memberId === 'all') {
                 b = data.settings.budget || {};
                 mo = data.settings.monthly || {};
+                ig = {}; // 全体選択時はインスタ目標は空
                 console.log('全体設定を読み込み');
             } else {
                 const monthKey = getMonthKey();
@@ -4315,14 +4309,16 @@
                     data.settings.memberSettings[memberId] = {};
                 }
                 if (!data.settings.memberSettings[memberId][monthKey]) {
-                    data.settings.memberSettings[memberId][monthKey] = { budget: {}, monthly: {} };
+                    data.settings.memberSettings[memberId][monthKey] = { budget: {}, monthly: {}, instagram: {} };
                 }
                 b = data.settings.memberSettings[memberId][monthKey].budget || {};
                 mo = data.settings.memberSettings[memberId][monthKey].monthly || {};
+                ig = data.settings.memberSettings[memberId][monthKey].instagram || {};
                 console.log('メンバー個別設定を読み込み:', memberId, '月:', monthKey);
             }
             console.log('budget:', JSON.stringify(b));
             console.log('monthly:', JSON.stringify(mo));
+            console.log('instagram:', JSON.stringify(ig));
 
             // 入力フィールドに値を設定
             const fields = [
@@ -4340,7 +4336,14 @@
                 ['mDoinExec', mo.doinExec],
                 ['mMendan', mo.mendan],
                 ['mMendanExec', mo.mendanExec],
-                ['mSeiyaku', mo.seiyaku]
+                ['mSeiyaku', mo.seiyaku],
+                ['igGoalSend', ig.send],
+                ['igGoalReply', ig.reply],
+                ['igGoalOffer', ig.offer],
+                ['igGoalApoGet', ig.apoGet],
+                ['igGoalApoExec', ig.apoExec],
+                ['igGoalDoinExec', ig.doinExec],
+                ['igGoalSeiyaku', ig.seiyaku]
             ];
 
             fields.forEach(([id, val]) => {
@@ -4407,9 +4410,9 @@
             }
             data.settings.memberSettings[selectedMember][monthKey].budget = budgetData;
             data.settings.memberSettings[selectedMember][monthKey].monthly = monthlyData;
-            console.log('メンバー個別設定として保存しました:', selectedMember, '月:', monthKey);
 
-            data.settings.instagram = {
+            // インスタ月間目標もメンバーごとに保存
+            data.settings.memberSettings[selectedMember][monthKey].instagram = {
                 send: parseInt(document.getElementById('igGoalSend').value) || 0,
                 reply: parseInt(document.getElementById('igGoalReply').value) || 0,
                 offer: parseInt(document.getElementById('igGoalOffer').value) || 0,
@@ -4418,6 +4421,8 @@
                 doinExec: parseInt(document.getElementById('igGoalDoinExec').value) || 0,
                 seiyaku: parseInt(document.getElementById('igGoalSeiyaku').value) || 0
             };
+            console.log('メンバー個別設定として保存しました:', selectedMember, '月:', monthKey);
+
             saveData(); renderSummary(); renderReview(); renderInstagram(); syncToCloud();
         }
 
@@ -4767,10 +4772,15 @@
                         mergedData.weeks[weekKey].daily[currentUserId] = data.weeks[weekKey].daily[currentUserId];
                     }
 
-                    // 自分のnippoデータだけローカルから上書き
-                    if (data.weeks[weekKey].nippo && data.weeks[weekKey].nippo[currentUserId]) {
+                    // 自分のnippoデータだけローカルから上書き（キーは memberId_dayIndex 形式）
+                    if (data.weeks[weekKey].nippo) {
                         if (!mergedData.weeks[weekKey].nippo) mergedData.weeks[weekKey].nippo = {};
-                        mergedData.weeks[weekKey].nippo[currentUserId] = data.weeks[weekKey].nippo[currentUserId];
+                        for (const nippoKey in data.weeks[weekKey].nippo) {
+                            // キーがcurrentUserIdで始まる場合のみ上書き
+                            if (nippoKey.startsWith(currentUserId + '_')) {
+                                mergedData.weeks[weekKey].nippo[nippoKey] = data.weeks[weekKey].nippo[nippoKey];
+                            }
+                        }
                     }
 
                     // review: メンバー別データ（cases, cancels, doinMuchakuList）はマージ
@@ -4978,17 +4988,25 @@
                                         }
                                     }
 
-                                    // nippo データ: 同様の処理
+                                    // nippo データ: キーは memberId_dayIndex 形式
                                     if (cloudWeek.nippo) {
                                         if (!localWeek.nippo) localWeek.nippo = {};
-                                        const myLocalNippo = localWeek.nippo[currentUserId];
-                                        for (const memberId in cloudWeek.nippo) {
-                                            if (memberId !== currentUserId) {
-                                                localWeek.nippo[memberId] = cloudWeek.nippo[memberId];
+                                        // 自分のローカルnippoデータを保存
+                                        const myLocalNippoData = {};
+                                        for (const nippoKey in localWeek.nippo) {
+                                            if (nippoKey.startsWith(currentUserId + '_')) {
+                                                myLocalNippoData[nippoKey] = localWeek.nippo[nippoKey];
                                             }
                                         }
-                                        if (myLocalNippo) {
-                                            localWeek.nippo[currentUserId] = myLocalNippo;
+                                        // クラウドのnippoデータを取り込む（自分以外）
+                                        for (const nippoKey in cloudWeek.nippo) {
+                                            if (!nippoKey.startsWith(currentUserId + '_')) {
+                                                localWeek.nippo[nippoKey] = cloudWeek.nippo[nippoKey];
+                                            }
+                                        }
+                                        // 自分のデータを復元
+                                        for (const nippoKey in myLocalNippoData) {
+                                            localWeek.nippo[nippoKey] = myLocalNippoData[nippoKey];
                                         }
                                     }
 
