@@ -1553,17 +1553,35 @@
             applySeasonalBackground();
         }
 
-        async function init() {
-            // セッション内で認証済みならスキップ
+        function checkAuth() {
+            // このチームの認証キーをチェック
             if (sessionStorage.getItem('salesTracker_auth_core') === 'true') {
                 document.getElementById('authModal').style.display = 'none';
                 document.getElementById('mainContainer').style.display = 'block';
-                initApp();
+                return true;
             } else {
-                // パスワード入力にフォーカス
+                // 認証されていない場合はモーダルを表示
+                document.getElementById('authModal').style.display = 'flex';
+                document.getElementById('mainContainer').style.display = 'none';
                 document.getElementById('authPassword').focus();
+                return false;
             }
         }
+
+        async function init() {
+            // セッション内で認証済みならスキップ
+            if (checkAuth()) {
+                initApp();
+            }
+        }
+
+        // 戻るボタンでページに戻った時も認証を再チェック
+        window.addEventListener('pageshow', function(event) {
+            if (event.persisted) {
+                // bfcacheから復元された場合、認証を再チェック
+                checkAuth();
+            }
+        });
 
         function applySeasonalBackground() {
             // 現在の月に基づいて季節の背景を適用
