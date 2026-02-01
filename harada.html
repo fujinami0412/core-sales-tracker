@@ -983,6 +983,8 @@
                 </div>
                 <div style="margin-bottom:16px;display:flex;gap:8px;flex-wrap:wrap">
                     <button class="btn btn-primary btn-sm" onclick="openVideoUploadModal()">動画を一括アップロード（1ヶ月分）</button>
+                    <button class="btn btn-primary btn-sm" onclick="document.getElementById('videoCsvImport').click()">動画CSVインポート</button>
+                    <input type="file" id="videoCsvImport" accept=".csv" style="display:none" onchange="importVideoCsv(event)">
                     <button class="btn btn-secondary btn-sm" onclick="exportNippoCsv()">CSVエクスポート</button>
                     <button class="btn btn-secondary btn-sm" onclick="document.getElementById('nippoCsvImport').click()">CSVインポート</button>
                     <input type="file" id="nippoCsvImport" accept=".csv" style="display:none" onchange="importNippoCsv(event)">
@@ -1331,10 +1333,6 @@
                     <button class="btn btn-secondary" onclick="exportData()">全データエクスポート</button>
                     <button class="btn btn-secondary" onclick="document.getElementById('importFile').click()">データインポート</button>
                     <button class="btn btn-danger" onclick="clearData()">全データ削除</button>
-                </div>
-                <div style="margin-top:16px;padding:16px;background:#1e293b;border-radius:8px;border-left:4px solid #f59e0b">
-                    <h3 style="color:#f59e0b;margin-bottom:8px">⚠️ 間違ったURLを設定してしまった場合</h3>
-                    <p style="font-size:13px;color:#94a3b8;margin-bottom:12px">自分のローカルデータだけをリセットして、正しいURLで再設定できます。クラウド上の他メンバーのデータには影響しません。</p>
                     <button class="btn btn-danger" onclick="resetLocalOnly()">ローカルデータをリセット</button>
                 </div>
             </div>
@@ -1448,7 +1446,6 @@
         let data = {
             members: [],
             accounts: [],
-            deletedMembers: [], // 削除されたメンバーIDを追跡
             settings: {
                 budget: { post: 56, apoGet: 50, apoExec: 46, doinGet: 7, doinExec: 4, mendan: 2, seiyaku: 1 },
                 monthly: { post: 56, apoGet: 50, apoExec: 46, doinGet: 7, doinExec: 4, mendan: 2, seiyaku: 1 },
@@ -3683,6 +3680,75 @@
             a.click();
         }
 
+        // 動画URL専用CSVインポート（日付,URL形式）
+        function importVideoCsv(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const text = e.target.result;
+                    const lines = text.split('\n').filter(line => line.trim());
+
+                    if (lines.length < 2) {
+                        alert('CSVファイルにデータがありません');
+                        return;
+                    }
+
+                    if (!data.monthVideos) data.monthVideos = {};
+                    let importCount = 0;
+
+                    for (let i = 1; i < lines.length; i++) {
+                        const row = parseCSVRow(lines[i]);
+                        if (row.length < 2) continue;
+
+                        const dateStr = row[0].trim();
+                        const videoUrl = row[1].trim();
+
+                        if (!videoUrl) continue;
+
+                        // 日付形式を判定してキーを生成
+                        let dateKey = '';
+                        let year, month;
+                        if (dateStr.includes('-')) {
+                            // YYYY-MM-DD形式
+                            const parts = dateStr.split('-').map(Number);
+                            year = parts[0];
+                            month = parts[1];
+                            dateKey = dateStr;
+                        } else if (dateStr.includes('/')) {
+                            // M/D形式 → 現在の年で補完
+                            const parts = dateStr.split('/').map(Number);
+                            month = parts[0];
+                            const d = parts[1];
+                            year = currentYear;
+                            dateKey = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                        }
+
+                        if (dateKey && year && month) {
+                            // 該当年月のmonthVideosに保存
+                            const monthKey = `${year}-${month}`;
+                            if (!data.monthVideos[monthKey]) data.monthVideos[monthKey] = {};
+                            data.monthVideos[monthKey][dateKey] = videoUrl;
+                            importCount++;
+                        }
+                    }
+
+                    saveData();
+                    syncToCloud();
+                    renderNippo();
+                    alert(`${importCount}件の動画URLをインポートしました`);
+
+                } catch (err) {
+                    console.error(err);
+                    alert('CSVの読み込みに失敗しました: ' + err.message);
+                }
+            };
+            reader.readAsText(file, 'UTF-8');
+            event.target.value = '';
+        }
+
         function importNippoCsv(event) {
             const file = event.target.files[0];
             if (!file) return;
@@ -4761,11 +4827,6 @@
                     dot.className = 'sync-dot';
                     const memberName = data.members.find(m => m.id === currentUserId)?.name || '';
                     console.log(`✅ ${memberName}さんのデータをクラウドに保存しました`);
-
-                    // ローカルのメンバーリストも更新（削除されたメンバーを除外）
-                    data.members = data.members.filter(m => !deletedSet.has(m.id));
-                    saveData();
-                    renderAll();
                 } else {
                     dot.className = 'sync-dot offline';
                     console.error('❌ 保存失敗:', response.status);
