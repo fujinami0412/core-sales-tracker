@@ -1531,7 +1531,7 @@
         function checkPassword() {
             const input = document.getElementById('authPassword').value;
             if (input === TEAM_PASSWORD) {
-                sessionStorage.setItem('salesTracker_auth', 'true');
+                sessionStorage.setItem('salesTracker_auth_core', 'true');
                 document.getElementById('authModal').style.display = 'none';
                 document.getElementById('mainContainer').style.display = 'block';
                 initApp();
@@ -1555,7 +1555,7 @@
 
         async function init() {
             // セッション内で認証済みならスキップ
-            if (sessionStorage.getItem('salesTracker_auth') === 'true') {
+            if (sessionStorage.getItem('salesTracker_auth_core') === 'true') {
                 document.getElementById('authModal').style.display = 'none';
                 document.getElementById('mainContainer').style.display = 'block';
                 initApp();
