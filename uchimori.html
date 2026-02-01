@@ -4249,12 +4249,14 @@
             // 全メンバーの設定を合計
             let budgetTotal = { post: 0, apoGet: 0, apoExec: 0, doinGet: 0, doinExec: 0, mendan: 0, seiyaku: 0 };
             let monthlyTotal = { post: 0, apoGet: 0, apoExec: 0, doinGet: 0, doinExec: 0, mendan: 0, mendanExec: 0, seiyaku: 0 };
+            let igTotal = { send: 0, reply: 0, offer: 0, apoGet: 0, apoExec: 0, doinExec: 0, seiyaku: 0 };
 
             const monthKey = getMonthKey();
             data.members.forEach(member => {
                 if (data.settings.memberSettings && data.settings.memberSettings[member.id] && data.settings.memberSettings[member.id][monthKey]) {
                     const mb = data.settings.memberSettings[member.id][monthKey].budget || {};
                     const mm = data.settings.memberSettings[member.id][monthKey].monthly || {};
+                    const mig = data.settings.memberSettings[member.id][monthKey].instagram || {};
 
                     budgetTotal.post += mb.post || 0;
                     budgetTotal.apoGet += mb.apoGet || 0;
@@ -4272,6 +4274,14 @@
                     monthlyTotal.mendan += mm.mendan || 0;
                     monthlyTotal.mendanExec += mm.mendanExec || 0;
                     monthlyTotal.seiyaku += mm.seiyaku || 0;
+
+                    igTotal.send += mig.send || 0;
+                    igTotal.reply += mig.reply || 0;
+                    igTotal.offer += mig.offer || 0;
+                    igTotal.apoGet += mig.apoGet || 0;
+                    igTotal.apoExec += mig.apoExec || 0;
+                    igTotal.doinExec += mig.doinExec || 0;
+                    igTotal.seiyaku += mig.seiyaku || 0;
                 }
             });
 
@@ -4292,6 +4302,15 @@
             document.getElementById('mMendan').value = monthlyTotal.mendan;
             document.getElementById('mMendanExec').value = monthlyTotal.mendanExec;
             document.getElementById('mSeiyaku').value = monthlyTotal.seiyaku;
+
+            // インスタ目標の合計を表示
+            document.getElementById('igGoalSend').value = igTotal.send;
+            document.getElementById('igGoalReply').value = igTotal.reply;
+            document.getElementById('igGoalOffer').value = igTotal.offer;
+            document.getElementById('igGoalApoGet').value = igTotal.apoGet;
+            document.getElementById('igGoalApoExec').value = igTotal.apoExec;
+            document.getElementById('igGoalDoinExec').value = igTotal.doinExec;
+            document.getElementById('igGoalSeiyaku').value = igTotal.seiyaku;
         }
 
         function loadMemberSettings(memberId) {
