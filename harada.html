@@ -4581,12 +4581,20 @@
             const selectedUserId = document.getElementById('currentUserSelect').value;
             data.settings.currentUserId = selectedUserId || null;
             saveData();
-            renderSettings(); // 警告表示を更新
-            console.log('現在のユーザーを設定:', selectedUserId);
 
+            // 上部のメンバー表示切り替えも自動的に切り替え
             if (selectedUserId) {
+                selectedMember = selectedUserId;
+                document.getElementById('memberSelect').value = selectedUserId;
                 const memberName = data.members.find(m => m.id === selectedUserId)?.name || '';
-                alert(`✅ 設定完了\n\n現在のユーザー: ${memberName}\n\n同期時に${memberName}さんのデータのみ更新されます。`);
+                console.log('現在のユーザーを設定:', selectedUserId, '表示も切り替え');
+
+                // 全画面を再レンダリング
+                renderAll();
+
+                alert(`✅ 設定完了\n\n現在のユーザー: ${memberName}\n\n表示が${memberName}さんに切り替わりました。\n同期時に${memberName}さんのデータのみ更新されます。`);
+            } else {
+                renderSettings(); // 警告表示を更新
             }
         }
 
