@@ -1686,6 +1686,7 @@
 
         function getMemberDaily(memberId) {
             const w = getWeekData();
+            if (!w.daily) w.daily = {};
             if (!w.daily[memberId]) {
                 w.daily[memberId] = {};
                 metrics.forEach(c => c.items.forEach(m => { w.daily[memberId][m.key] = [0,0,0,0,0,0,0]; }));
