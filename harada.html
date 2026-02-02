@@ -4,6 +4,24 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>原田チーム施策ツール</title>
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <script>
+        // Firebase設定
+        const firebaseConfig = {
+            apiKey: "AIzaSyDky9IIUZNbgFvv5kQFKFyFIMddTBYMBOE",
+            authDomain: "sales-tracker-1e15a.firebaseapp.com",
+            databaseURL: "https://sales-tracker-1e15a-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "sales-tracker-1e15a",
+            storageBucket: "sales-tracker-1e15a.firebasestorage.app",
+            messagingSenderId: "342349456010",
+            appId: "1:342349456010:web:a6c08087598bdbccf10373"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+        const TEAM_ID = 'harada'; // このチーム専用
+    </script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -1461,6 +1479,9 @@
     </div>
 
     <script>
+        // 🔒 チーム識別子（このツール専用 - 他チームと絶対に同じにしないこと）
+        const TEAM_ID = 'harada';
+
         // データ構造
         let data = {
             members: [],
@@ -1546,10 +1567,7 @@
 
         async function initApp() {
             loadData(); // ローカルから読み込み
-            const cloudLoaded = await loadFromCloud(); // クラウドから読み込み
-            if (cloudLoaded) {
-                console.log('クラウドデータを使用');
-            }
+            setupFirebaseListener(); // Firebaseリアルタイム同期を開始
             updateWeekLabel();
             updateSyncStatus();
             renderAll();
@@ -1733,12 +1751,12 @@
         function updateSyncStatus() {
             const dot = document.getElementById('syncDot');
             const text = document.getElementById('syncText');
-            if (data.settings.gasUrl) {
+            if (firebaseInitialized) {
                 dot.className = 'sync-dot';
-                text.textContent = 'クラウド同期';
+                text.textContent = '🔥 Firebase同期中';
             } else {
-                dot.className = 'sync-dot offline';
-                text.textContent = 'ローカル保存';
+                dot.className = 'sync-dot syncing';
+                text.textContent = '接続中...';
             }
         }
 
@@ -4670,7 +4688,7 @@
                 console.log('入力された名前:', name);
                 if (!name) { alert('名前を入力してください'); return; }
 
-                const newMember = { id: 'mem_' + Date.now(), name };
+                const newMember = { id: 'mem_' + Date.now(), name, teamId: TEAM_ID };
                 console.log('新しいメンバー:', newMember);
                 data.members.push(newMember);
                 console.log('現在のメンバー数:', data.members.length);
@@ -4706,7 +4724,27 @@
         }
 
         // データ
-        function saveData() { localStorage.setItem('salesPro_harada', JSON.stringify(data)); }
+        let firebaseInitialized = false;
+
+        function saveData() {
+            localStorage.setItem('salesPro_harada', JSON.stringify(data));
+            // Firebaseにも保存
+            saveToFirebase();
+        }
+
+        function saveToFirebase() {
+            if (!firebaseInitialized) return;
+            const saveData = JSON.parse(JSON.stringify(data));
+            // 個人設定は除外してチーム共有データのみ保存
+            delete saveData.settings.gasUrl;
+            database.ref('teams/' + TEAM_ID).set(saveData)
+                .then(() => {
+                    console.log('🔥 Firebase保存完了');
+                    updateSyncStatus();
+                })
+                .catch(err => console.error('Firebase保存エラー:', err));
+        }
+
         function loadData() {
             const s = localStorage.getItem('salesPro_harada');
             if (s) {
@@ -4729,10 +4767,40 @@
                 }
             }
         }
+
+        function setupFirebaseListener() {
+            database.ref('teams/' + TEAM_ID).on('value', (snapshot) => {
+                const firebaseData = snapshot.val();
+                if (firebaseData) {
+                    // ローカルの個人設定を保持
+                    const localSettings = data.settings ? { ...data.settings } : {};
+
+                    // Firebaseのデータをマージ
+                    data = { ...data, ...firebaseData };
+
+                    // 個人設定を復元
+                    data.settings = { ...firebaseData.settings, ...localSettings };
+
+                    localStorage.setItem('salesPro_harada', JSON.stringify(data));
+                    renderAll();
+                    console.log('🔥 Firebaseからリアルタイム更新');
+                }
+            });
+            firebaseInitialized = true;
+            console.log('🔥 Firebaseリスナー設定完了');
+        }
+
         function saveAll() { saveReview(); saveData(); }
 
-        // クラウド同期
+        // クラウド同期（Firebase版 - シンプル）
         async function syncToCloud() {
+            // Firebaseは自動同期なので、手動で保存するだけ
+            saveToFirebase();
+            alert('✅ 同期完了！');
+        }
+
+        // 以下は旧GAS版（使わない）
+        async function syncToCloud_OLD() {
             if (!data.settings.gasUrl) return;
 
             // 🔒 現在のユーザーが設定されているかチェック
@@ -4778,13 +4846,20 @@
                 mergedData.deletedMembers = allDeletedMembers;
                 const deletedSet = new Set(allDeletedMembers);
 
-                // メンバーリストをマージ（削除されたメンバーを除外し、新規メンバーを追加）
-                // まず削除されたメンバーをクラウドデータから除外
-                mergedData.members = mergedData.members.filter(m => !deletedSet.has(m.id));
-                // ローカルの新規メンバーを追加（削除済みは除く）
+                // メンバーリストをマージ（チームIDでフィルタリング + 削除されたメンバーを除外）
+                // 🔒 このチームのメンバーのみを処理（teamIdが一致、または未設定の古いメンバー）
+                const isMyTeamMember = (m) => !m.teamId || m.teamId === TEAM_ID;
+
+                // クラウドから自チームのメンバーのみ取得
+                mergedData.members = mergedData.members.filter(m => isMyTeamMember(m) && !deletedSet.has(m.id));
+
+                // ローカルの自チームメンバーを追加（クラウドにないもの）
                 const cloudMemberIds = new Set(mergedData.members.map(m => m.id));
                 data.members.forEach(m => {
-                    if (!cloudMemberIds.has(m.id) && !deletedSet.has(m.id)) {
+                    // 自チームのメンバーで、クラウドにまだいない場合のみ追加
+                    if (isMyTeamMember(m) && !cloudMemberIds.has(m.id) && !deletedSet.has(m.id)) {
+                        // teamIdがない古いメンバーには自チームIDを付与
+                        if (!m.teamId) m.teamId = TEAM_ID;
                         mergedData.members.push(m);
                     }
                 });
@@ -4940,6 +5015,13 @@
         }
 
         async function loadFromCloud() {
+            // Firebaseリスナーが自動でデータを同期するので、ここでは何もしない
+            console.log('🔥 Firebaseリアルタイム同期中...');
+            return true;
+        }
+
+        // 以下は旧GAS版（使わない）
+        async function loadFromCloud_OLD() {
             const url = data.settings.gasUrl;
             if (!url || url.trim() === '') {
                 console.log('クラウド同期URLが未設定');
@@ -4982,13 +5064,24 @@
                         data.deletedMembers = allDeletedMembers;
                         const deletedSet = new Set(allDeletedMembers);
 
-                        // メンバーリストをマージ（削除されたメンバーを除外）
+                        // メンバーリストをマージ（チームIDでフィルタリング + 削除されたメンバーを除外）
                         if (cloudData.members) {
-                            const cloudMemberIds = new Set(cloudData.members.map(m => m.id));
-                            const localOnlyMembers = data.members.filter(m => !cloudMemberIds.has(m.id) && !deletedSet.has(m.id));
-                            const filteredCloudMembers = cloudData.members.filter(m => !deletedSet.has(m.id));
+                            // 🔒 このチームのメンバーのみを処理
+                            const isMyTeamMember = (m) => !m.teamId || m.teamId === TEAM_ID;
+
+                            // クラウドから自チームのメンバーのみ取得
+                            const filteredCloudMembers = cloudData.members.filter(m => isMyTeamMember(m) && !deletedSet.has(m.id));
+
+                            // ローカルの自チームメンバーで、クラウドにないもの
+                            const cloudMemberIds = new Set(filteredCloudMembers.map(m => m.id));
+                            const localOnlyMembers = data.members.filter(m => isMyTeamMember(m) && !cloudMemberIds.has(m.id) && !deletedSet.has(m.id));
+
+                            // teamIdがない古いメンバーには自チームIDを付与
+                            filteredCloudMembers.forEach(m => { if (!m.teamId) m.teamId = TEAM_ID; });
+                            localOnlyMembers.forEach(m => { if (!m.teamId) m.teamId = TEAM_ID; });
+
                             data.members = [...filteredCloudMembers, ...localOnlyMembers];
-                            console.log('📊 メンバーマージ: クラウド', filteredCloudMembers.length, '+ ローカル専用', localOnlyMembers.length, '(削除済み除外)');
+                            console.log('🔒 チームID:', TEAM_ID, '- クラウド:', filteredCloudMembers.length, '+ ローカル:', localOnlyMembers.length);
                         }
 
                         // アカウントリストをマージ

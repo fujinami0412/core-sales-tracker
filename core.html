@@ -4,6 +4,24 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>コア施策ツール</title>
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <script>
+        // Firebase設定
+        const firebaseConfig = {
+            apiKey: "AIzaSyDky9IIUZNbgFvv5kQFKFyFIMddTBYMBOE",
+            authDomain: "sales-tracker-1e15a.firebaseapp.com",
+            databaseURL: "https://sales-tracker-1e15a-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "sales-tracker-1e15a",
+            storageBucket: "sales-tracker-1e15a.firebasestorage.app",
+            messagingSenderId: "342349456010",
+            appId: "1:342349456010:web:a6c08087598bdbccf10373"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+        const TEAM_ID = 'core'; // このチーム専用
+    </script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -1545,11 +1563,8 @@
         }
 
         async function initApp() {
-            loadData(); // ローカルから読み込み
-            const cloudLoaded = await loadFromCloud(); // クラウドから読み込み
-            if (cloudLoaded) {
-                console.log('クラウドデータを使用');
-            }
+            loadData();
+            setupFirebaseListener();
             updateWeekLabel();
             updateSyncStatus();
             renderAll();
@@ -1733,12 +1748,12 @@
         function updateSyncStatus() {
             const dot = document.getElementById('syncDot');
             const text = document.getElementById('syncText');
-            if (data.settings.gasUrl) {
+            if (firebaseInitialized) {
                 dot.className = 'sync-dot';
-                text.textContent = 'クラウド同期';
+                text.textContent = '🔥 Firebase同期中';
             } else {
-                dot.className = 'sync-dot offline';
-                text.textContent = 'ローカル保存';
+                dot.className = 'sync-dot syncing';
+                text.textContent = '接続中...';
             }
         }
 
@@ -4706,7 +4721,25 @@
         }
 
         // データ
-        function saveData() { localStorage.setItem('salesPro_core', JSON.stringify(data)); }
+        let firebaseInitialized = false;
+
+        function saveData() {
+            localStorage.setItem('salesPro_core', JSON.stringify(data));
+            saveToFirebase();
+        }
+
+        function saveToFirebase() {
+            if (!firebaseInitialized) return;
+            const saveData = JSON.parse(JSON.stringify(data));
+            delete saveData.settings.gasUrl;
+            database.ref('teams/' + TEAM_ID).set(saveData)
+                .then(() => {
+                    console.log('🔥 Firebase保存完了');
+                    updateSyncStatus();
+                })
+                .catch(err => console.error('Firebase保存エラー:', err));
+        }
+
         function loadData() {
             const s = localStorage.getItem('salesPro_core');
             if (s) {
@@ -4715,11 +4748,9 @@
                 if (!data.settings.budget) {
                     data.settings.budget = data.settings.weekly || { post: 56, apoGet: 50, apoExec: 46, doinGet: 7, doinExec: 4, mendan: 2, seiyaku: 1 };
                 }
-                // 🆕 新機能の互換性対応
                 if (!data.settings.currentUserId) data.settings.currentUserId = null;
                 if (!data.lastUpdated) data.lastUpdated = null;
                 if (!data.deletedMembers) data.deletedMembers = [];
-                // 各週データにngReasonsを追加（既存データ対応）
                 if (data.weeks) {
                     for (const weekKey in data.weeks) {
                         if (data.weeks[weekKey].review && !data.weeks[weekKey].review.ngReasons) {
@@ -4729,16 +4760,37 @@
                 }
             }
         }
+
+        function setupFirebaseListener() {
+            database.ref('teams/' + TEAM_ID).on('value', (snapshot) => {
+                const firebaseData = snapshot.val();
+                if (firebaseData) {
+                    const localSettings = data.settings ? { ...data.settings } : {};
+                    data = { ...data, ...firebaseData };
+                    data.settings = { ...firebaseData.settings, ...localSettings };
+                    localStorage.setItem('salesPro_core', JSON.stringify(data));
+                    renderAll();
+                    console.log('🔥 Firebaseからリアルタイム更新');
+                }
+            });
+            firebaseInitialized = true;
+            console.log('🔥 Firebaseリスナー設定完了');
+        }
+
         function saveAll() { saveReview(); saveData(); }
 
-        // クラウド同期
+        // クラウド同期（Firebase版）
         async function syncToCloud() {
+            saveToFirebase();
+            alert('✅ 同期完了！');
+        }
+
+        async function syncToCloud_OLD() {
             if (!data.settings.gasUrl) return;
 
-            // 🔒 現在のユーザーが設定されているかチェック
             const currentUserId = data.settings.currentUserId;
             if (!currentUserId) {
-                console.warn('⚠️ 現在のユーザーが未設定のため、同期をスキップします');
+                console.warn('⚠️ 現在のユーザーが未設定');
                 return;
             }
 
@@ -4940,16 +4992,20 @@
         }
 
         async function loadFromCloud() {
+            console.log('🔥 Firebaseリアルタイム同期中...');
+            return true;
+        }
+
+        async function loadFromCloud_OLD() {
             const url = data.settings.gasUrl;
             if (!url || url.trim() === '') {
                 console.log('クラウド同期URLが未設定');
                 return false;
             }
 
-            // 🔒 現在のユーザーが設定されているかチェック
             const currentUserId = data.settings.currentUserId;
             if (!currentUserId) {
-                alert('⚠️ ユーザー未設定\n\n同期する前に、設定タブで「あなたは誰ですか？」を選択してください。');
+                alert('⚠️ ユーザー未設定');
                 return false;
             }
 
