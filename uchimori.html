@@ -3804,6 +3804,29 @@
             event.target.value = '';
         }
 
+        // 日付から週情報を計算
+        function getWeekInfoFromDate(dateObj) {
+            const year = dateObj.getFullYear();
+            const dayOfWeek = dateObj.getDay(); // 0=日, 1=月, ..., 6=土
+            const dayIndex = (dayOfWeek + 1) % 7; // 土=0, 日=1, 月=2, ...
+
+            // この日付が含まれる週を探す
+            for (let month = dateObj.getMonth() + 1; month >= 1; month--) {
+                for (let weekNum = 1; weekNum <= 5; weekNum++) {
+                    const firstDay = new Date(year, month - 1, 1);
+                    const dow = (firstDay.getDay() + 1) % 7;
+                    const weekStart = new Date(year, month - 1, 1 - dow + (weekNum - 1) * 7);
+                    const weekEnd = new Date(weekStart);
+                    weekEnd.setDate(weekStart.getDate() + 6);
+
+                    if (dateObj >= weekStart && dateObj <= weekEnd) {
+                        return { year, month, weekNum, dayIndex };
+                    }
+                }
+            }
+            return null;
+        }
+
         function importNippoCsv(event) {
             const file = event.target.files[0];
             if (!file) return;
@@ -3829,11 +3852,22 @@
 
                     for (let i = 1; i < lines.length; i++) {
                         const row = parseCSVRow(lines[i]);
-                        if (row.length < 4) continue; // 最低限: 日付,曜日,メンバー,何かデータ
+                        if (row.length < 4) continue;
 
                         const [dateStr, dayName, memberName, videoUrl, output, gratitude] = row;
                         const trimmedName = (memberName || '').trim();
                         if (!trimmedName) continue;
+
+                        // 日付をパース (M/D形式)
+                        const dateParts = (dateStr || '').trim().split('/');
+                        if (dateParts.length !== 2) continue;
+                        const month = parseInt(dateParts[0]);
+                        const day = parseInt(dateParts[1]);
+                        if (isNaN(month) || isNaN(day)) continue;
+
+                        const dateObj = new Date(currentYear, month - 1, day);
+                        const weekInfo = getWeekInfoFromDate(dateObj);
+                        if (!weekInfo) continue;
 
                         // メンバーを検索、なければ自動追加
                         let member = data.members.find(m => m.name === trimmedName);
@@ -3846,24 +3880,29 @@
                             }
                         }
 
-                        // 日付から曜日インデックスを取得
-                        const dayIndex = ['土','日','月','火','水','木','金'].indexOf((dayName || '').trim());
-                        if (dayIndex === -1) continue;
+                        // 該当週のデータを取得または作成
+                        const weekKey = `${weekInfo.year}-${weekInfo.month}-W${weekInfo.weekNum}`;
+                        if (!data.weeks[weekKey]) {
+                            data.weeks[weekKey] = { daily: {}, nippo: {}, review: { cases: [], cancels: [], doinMuchakuList: [] }, instagram: {} };
+                        }
+                        const weekData = data.weeks[weekKey];
+                        if (!weekData.nippo) weekData.nippo = {};
 
                         // 日報データを更新
-                        const nippoData = getNippoData(member.id, dayIndex);
-                        if (output && output.trim()) nippoData.output = output.trim();
-                        if (gratitude && gratitude.trim()) nippoData.gratitude = gratitude.trim();
+                        const nippoKey = `${member.id}_${weekInfo.dayIndex}`;
+                        if (!weekData.nippo[nippoKey]) {
+                            weekData.nippo[nippoKey] = { output: '', gratitude: '' };
+                        }
+                        if (output && output.trim()) weekData.nippo[nippoKey].output = output.trim();
+                        if (gratitude && gratitude.trim()) weekData.nippo[nippoKey].gratitude = gratitude.trim();
 
                         // 動画URLも更新（あれば）
                         if (videoUrl && videoUrl.trim()) {
-                            const dates = getWeekDates();
-                            const date = dates[dayIndex];
-                            if (date) {
-                                const dateKey = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
-                                const monthVideos = getMonthVideos();
-                                monthVideos[dateKey] = videoUrl.trim();
-                            }
+                            const dateKey = `${dateObj.getFullYear()}-${String(dateObj.getMonth()+1).padStart(2,'0')}-${String(dateObj.getDate()).padStart(2,'0')}`;
+                            const monthKey = `${dateObj.getFullYear()}-${dateObj.getMonth()+1}`;
+                            if (!data.monthVideos) data.monthVideos = {};
+                            if (!data.monthVideos[monthKey]) data.monthVideos[monthKey] = {};
+                            data.monthVideos[monthKey][dateKey] = videoUrl.trim();
                         }
 
                         importCount++;
