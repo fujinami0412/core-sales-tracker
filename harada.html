@@ -4087,7 +4087,11 @@
             const reader = new FileReader();
             reader.onload = function(e) {
                 try {
-                    const text = e.target.result;
+                    let text = e.target.result;
+                    // BOM除去
+                    if (text.charCodeAt(0) === 0xFEFF) {
+                        text = text.slice(1);
+                    }
                     const lines = text.split('\n').filter(line => line.trim());
 
                     if (lines.length < 2) {
@@ -4095,13 +4099,26 @@
                         return;
                     }
 
+                    // 全メトリックラベルのマップを作成
+                    const labelToKey = {};
+                    metrics.forEach(cat => {
+                        cat.items.forEach(m => {
+                            labelToKey[m.label] = m.key;
+                        });
+                    });
+                    console.log('📊 メトリックマップ:', labelToKey);
+
                     let importCount = 0;
                     let newMemberCount = 0;
+                    let skippedLabels = new Set();
                     const addedMembers = new Set();
 
                     for (let i = 1; i < lines.length; i++) {
                         const row = parseCSVRow(lines[i]);
-                        if (row.length < 10) continue; // メンバー,カテゴリ,項目,土〜金,合計
+                        if (row.length < 10) {
+                            console.log('⚠️ 行スキップ（列数不足）:', row.length, lines[i].substring(0, 50));
+                            continue;
+                        }
 
                         const memberName = row[0].trim();
                         if (!memberName) continue;
@@ -4115,17 +4132,19 @@
                             if (!addedMembers.has(memberName)) {
                                 addedMembers.add(memberName);
                                 newMemberCount++;
+                                console.log('👤 メンバー追加:', memberName);
                             }
                         }
 
                         // 項目キーを検索
-                        let metricKey = null;
-                        metrics.forEach(cat => {
-                            cat.items.forEach(m => {
-                                if (m.label === itemLabel) metricKey = m.key;
-                            });
-                        });
-                        if (!metricKey) continue;
+                        const metricKey = labelToKey[itemLabel];
+                        if (!metricKey) {
+                            if (!skippedLabels.has(itemLabel)) {
+                                skippedLabels.add(itemLabel);
+                                console.log('⚠️ 未知の項目ラベル:', JSON.stringify(itemLabel), '文字コード:', [...itemLabel].map(c => c.charCodeAt(0)));
+                            }
+                            continue;
+                        }
 
                         // 日別データを更新
                         const d = getMemberDaily(member.id);
@@ -4142,6 +4161,9 @@
                     let msg = `${importCount}件のデータをインポートしました`;
                     if (newMemberCount > 0) {
                         msg += `\n新規メンバー ${newMemberCount}名を追加: ${Array.from(addedMembers).join(', ')}`;
+                    }
+                    if (skippedLabels.size > 0) {
+                        msg += `\n⚠️ 未対応の項目: ${Array.from(skippedLabels).join(', ')}`;
                     }
                     alert(msg);
 
