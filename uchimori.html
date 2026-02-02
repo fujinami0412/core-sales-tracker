@@ -4094,17 +4094,27 @@
                     }
 
                     let importCount = 0;
+                    let newMemberCount = 0;
+                    const addedMembers = new Set();
 
                     for (let i = 1; i < lines.length; i++) {
                         const row = parseCSVRow(lines[i]);
-                        if (row.length < 10) continue; // メンバー,カテゴリ,項目,月〜日,合計
+                        if (row.length < 10) continue; // メンバー,カテゴリ,項目,土〜金,合計
 
                         const memberName = row[0].trim();
+                        if (!memberName) continue;
                         const itemLabel = row[2].trim();
 
-                        // メンバーを検索
-                        const member = data.members.find(m => m.name === memberName);
-                        if (!member) continue;
+                        // メンバーを検索、なければ自動追加
+                        let member = data.members.find(m => m.name === memberName);
+                        if (!member) {
+                            member = { id: 'member_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5), name: memberName };
+                            data.members.push(member);
+                            if (!addedMembers.has(memberName)) {
+                                addedMembers.add(memberName);
+                                newMemberCount++;
+                            }
+                        }
 
                         // 項目キーを検索
                         let metricKey = null;
@@ -4127,7 +4137,11 @@
                     saveData();
                     syncToCloud();
                     renderAll();
-                    alert(`${importCount}件のデータをインポートしました`);
+                    let msg = `${importCount}件のデータをインポートしました`;
+                    if (newMemberCount > 0) {
+                        msg += `\n新規メンバー ${newMemberCount}名を追加: ${Array.from(addedMembers).join(', ')}`;
+                    }
+                    alert(msg);
 
                 } catch (err) {
                     console.error(err);
