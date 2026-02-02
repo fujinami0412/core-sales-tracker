@@ -831,6 +831,11 @@
                     <span id="weekLabel">1/17〜1/23（第3週）</span>
                     <button onclick="nextWeek()">▶</button>
                 </div>
+                <div class="week-nav" id="monthSelector" style="display:none;">
+                    <button onclick="prevMonth()">◀</button>
+                    <span id="monthLabel">2026年1月</span>
+                    <button onclick="nextMonth()">▶</button>
+                </div>
             </div>
         </header>
 
@@ -1713,18 +1718,66 @@
             return w.instagram[accountId];
         }
 
+        // 月内の最大週数を取得
+        function getMaxWeeksInMonth() {
+            const firstDayOfMonth = new Date(currentYear, currentMonth - 1, 1);
+            const lastDayOfMonth = new Date(currentYear, currentMonth, 0).getDate();
+            const dow = (firstDayOfMonth.getDay() + 1) % 7; // 土曜始まり
+            return Math.ceil((lastDayOfMonth + dow) / 7);
+        }
+
+        // 指定週で有効な曜日インデックスを取得（月内の日のみ）
+        function getValidIndicesForWeek(weekNum) {
+            const firstDayOfMonth = new Date(currentYear, currentMonth - 1, 1);
+            const lastDayOfMonth = new Date(currentYear, currentMonth, 0).getDate();
+            const dow = (firstDayOfMonth.getDay() + 1) % 7;
+            const weekStart = 1 - dow + (weekNum - 1) * 7;
+
+            const indices = [];
+            for (let i = 0; i < 7; i++) {
+                const dayOfMonth = weekStart + i;
+                if (dayOfMonth >= 1 && dayOfMonth <= lastDayOfMonth) {
+                    indices.push(i);
+                }
+            }
+            return indices;
+        }
+
         function getWeekDates() {
-            const firstDay = new Date(currentYear, currentMonth - 1, 1);
-            const dow = (firstDay.getDay() + 1) % 7;
-            const start = new Date(currentYear, currentMonth - 1, 1 - dow + (currentWeekNum - 1) * 7);
+            const firstDayOfMonth = new Date(currentYear, currentMonth - 1, 1);
+            const lastDayOfMonth = new Date(currentYear, currentMonth, 0).getDate();
+            const dow = (firstDayOfMonth.getDay() + 1) % 7;
+            const weekStart = 1 - dow + (currentWeekNum - 1) * 7;
+
             const dates = [];
-            for (let i = 0; i < 7; i++) { const d = new Date(start); d.setDate(d.getDate() + i); dates.push(d); }
-            return dates;
+            const validIndices = [];
+
+            for (let i = 0; i < 7; i++) {
+                const dayOfMonth = weekStart + i;
+                if (dayOfMonth >= 1 && dayOfMonth <= lastDayOfMonth) {
+                    dates.push(new Date(currentYear, currentMonth - 1, dayOfMonth));
+                    validIndices.push(i);
+                }
+            }
+            return { dates, validIndices };
         }
 
         function updateWeekLabel() {
-            const dates = getWeekDates();
-            document.getElementById('weekLabel').textContent = `${dates[0].getMonth()+1}/${dates[0].getDate()}〜${dates[6].getMonth()+1}/${dates[6].getDate()}（第${currentWeekNum}週）`;
+            const { dates } = getWeekDates();
+            if (dates.length === 0) return;
+            const startDate = dates[0];
+            const endDate = dates[dates.length - 1];
+            let label = `${startDate.getMonth()+1}/${startDate.getDate()}`;
+            if (dates.length > 1) {
+                label += `〜${endDate.getMonth()+1}/${endDate.getDate()}`;
+            }
+            label += `（第${currentWeekNum}週）`;
+            document.getElementById('weekLabel').textContent = label;
+        }
+
+        function updateMonthLabel() {
+            const el = document.getElementById('monthLabel');
+            if (el) el.textContent = `${currentYear}年${currentMonth}月`;
         }
 
         function updateSyncStatus() {
@@ -1739,14 +1792,51 @@
             }
         }
 
-        function prevWeek() { saveAll(); currentWeekNum--; if (currentWeekNum < 1) { currentMonth--; if (currentMonth < 1) { currentMonth = 12; currentYear--; } currentWeekNum = 4; } updateWeekLabel(); renderAll(); applySeasonalBackground(); }
-        function nextWeek() { saveAll(); currentWeekNum++; if (currentWeekNum > 5) { currentMonth++; if (currentMonth > 12) { currentMonth = 1; currentYear++; } currentWeekNum = 1; } updateWeekLabel(); renderAll(); applySeasonalBackground(); }
+        function prevWeek() {
+            saveAll();
+            currentWeekNum--;
+            if (currentWeekNum < 1) {
+                currentMonth--;
+                if (currentMonth < 1) { currentMonth = 12; currentYear--; }
+                currentWeekNum = getMaxWeeksInMonth();
+            }
+            updateWeekLabel(); renderAll(); applySeasonalBackground();
+        }
+
+        function nextWeek() {
+            saveAll();
+            currentWeekNum++;
+            if (currentWeekNum > getMaxWeeksInMonth()) {
+                currentMonth++;
+                if (currentMonth > 12) { currentMonth = 1; currentYear++; }
+                currentWeekNum = 1;
+            }
+            updateWeekLabel(); renderAll(); applySeasonalBackground();
+        }
+
+        function prevMonth() {
+            saveAll();
+            currentMonth--;
+            if (currentMonth < 1) { currentMonth = 12; currentYear--; }
+            currentWeekNum = 1;
+            updateMonthLabel(); renderAll(); applySeasonalBackground();
+        }
+
+        function nextMonth() {
+            saveAll();
+            currentMonth++;
+            if (currentMonth > 12) { currentMonth = 1; currentYear++; }
+            currentWeekNum = 1;
+            updateMonthLabel(); renderAll(); applySeasonalBackground();
+        }
 
         function setViewPeriod(period) {
             viewPeriod = period;
             document.getElementById('btnWeek').className = 'period-btn' + (period === 'week' ? ' active' : '');
             document.getElementById('btnMonth').className = 'period-btn' + (period === 'month' ? ' active' : '');
-            document.getElementById('weekNav').className = 'week-nav' + (period === 'month' ? ' hidden' : '');
+            document.getElementById('weekNav').style.display = period === 'month' ? 'none' : 'flex';
+            document.getElementById('monthSelector').style.display = period === 'month' ? 'flex' : 'none';
+            updateMonthLabel();
             renderAll();
         }
 
@@ -1755,6 +1845,10 @@
             document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
             document.querySelector(`.tab[onclick="switchTab('${id}')"]`).classList.add('active');
             document.getElementById(`tab-${id}`).classList.add('active');
+            // 設定タブが開かれたときにrenderSettingsを再呼び出し
+            if (id === 'settings') {
+                renderSettings();
+            }
         }
 
         function openModal(id) { document.getElementById(id).classList.add('active'); }
@@ -1809,25 +1903,34 @@
             const members = selectedMember === 'all' ? data.members : data.members.filter(m => m.id === selectedMember);
 
             if (viewPeriod === 'month') {
-                // 月全体の合計
-                for (let w = 1; w <= 5; w++) {
+                // 月全体の合計（有効なインデックスのみ）
+                const maxWeeks = getMaxWeeksInMonth();
+                for (let w = 1; w <= maxWeeks; w++) {
                     const weekKey = `${currentYear}-${currentMonth}-W${w}`;
+                    const validIndices = getValidIndicesForWeek(w);
                     if (data.weeks[weekKey]) {
                         members.forEach(m => {
                             const d = data.weeks[weekKey].daily[m.id];
                             if (d) {
                                 metrics.forEach(c => c.items.forEach(met => {
-                                    t[met.key] += (d[met.key] || [0,0,0,0,0,0,0]).reduce((a,b) => a+b, 0);
+                                    validIndices.forEach(idx => {
+                                        t[met.key] += (d[met.key] || [0,0,0,0,0,0,0])[idx] || 0;
+                                    });
                                 }));
                             }
                         });
                     }
                 }
             } else {
-                // 週の合計
+                // 週の合計（有効なインデックスのみ）
+                const validIndices = getValidIndicesForWeek(currentWeekNum);
                 members.forEach(m => {
                     const d = getMemberDaily(m.id);
-                    metrics.forEach(c => c.items.forEach(met => { t[met.key] += (d[met.key] || [0,0,0,0,0,0,0]).reduce((a,b) => a+b, 0); }));
+                    metrics.forEach(c => c.items.forEach(met => {
+                        validIndices.forEach(idx => {
+                            t[met.key] += (d[met.key] || [0,0,0,0,0,0,0])[idx] || 0;
+                        });
+                    }));
                 });
             }
             return t;
@@ -1838,19 +1941,26 @@
             metrics.forEach(c => c.items.forEach(m => t[m.key] = 0));
 
             if (viewPeriod === 'month') {
-                for (let w = 1; w <= 5; w++) {
+                const maxWeeks = getMaxWeeksInMonth();
+                for (let w = 1; w <= maxWeeks; w++) {
                     const weekKey = `${currentYear}-${currentMonth}-W${w}`;
+                    const validIndices = getValidIndicesForWeek(w);
                     if (data.weeks[weekKey] && data.weeks[weekKey].daily[memberId]) {
                         const d = data.weeks[weekKey].daily[memberId];
                         metrics.forEach(c => c.items.forEach(met => {
-                            t[met.key] += (d[met.key] || [0,0,0,0,0,0,0]).reduce((a,b) => a+b, 0);
+                            validIndices.forEach(idx => {
+                                t[met.key] += (d[met.key] || [0,0,0,0,0,0,0])[idx] || 0;
+                            });
                         }));
                     }
                 }
             } else {
+                const validIndices = getValidIndicesForWeek(currentWeekNum);
                 const d = getMemberDaily(memberId);
                 metrics.forEach(c => c.items.forEach(met => {
-                    t[met.key] += (d[met.key] || [0,0,0,0,0,0,0]).reduce((a,b) => a+b, 0);
+                    validIndices.forEach(idx => {
+                        t[met.key] += (d[met.key] || [0,0,0,0,0,0,0])[idx] || 0;
+                    });
                 }));
             }
             return t;
@@ -2617,9 +2727,19 @@
             }
 
             const currentUserId = data.settings.currentUserId;
-            const dates = getWeekDates();
+            const { dates, validIndices } = getWeekDates();
+            if (dates.length === 0) {
+                document.getElementById('dailyInputArea').innerHTML = '<p style="color:#94a3b8;text-align:center;padding:20px;">この週には表示する日がありません</p>';
+                return;
+            }
+
             const days = ['土','日','月','火','水','木','金'];
-            let html = `<div class="daily-header"><div class="daily-cell header">項目</div>${dates.map((d,i) => `<div class="daily-cell header">${days[i]}<br>${d.getMonth()+1}/${d.getDate()}</div>`).join('')}<div class="daily-cell header">合計</div></div>`;
+            const numCols = dates.length;
+            const gridCols = `120px repeat(${numCols}, 1fr) 80px`;
+
+            // ヘッダー
+            let html = `<div class="daily-header" style="grid-template-columns:${gridCols}"><div class="daily-cell header">項目</div>${dates.map((d, idx) => `<div class="daily-cell header">${days[validIndices[idx]]}<br>${d.getMonth()+1}/${d.getDate()}</div>`).join('')}<div class="daily-cell header">合計</div></div>`;
+
             const members = selectedMember === 'all' ? data.members : data.members.filter(m => m.id === selectedMember);
             members.forEach(member => {
                 const isMyData = member.id === currentUserId;
@@ -2627,19 +2747,20 @@
                 const rowStyle = isMyData ? '' : 'opacity:0.6;';
                 const lockIcon = isMyData ? '' : ' 🔒';
 
-                html += `<div class="daily-row" style="${rowStyle}"><div class="daily-cell category" style="grid-column:1/-1">${member.name}${lockIcon}</div></div>`;
+                html += `<div class="daily-row" style="${rowStyle};grid-template-columns:${gridCols}"><div class="daily-cell category" style="grid-column:1/-1">${member.name}${lockIcon}</div></div>`;
                 metrics.forEach(cat => {
-                    html += `<div class="daily-row" style="${rowStyle}"><div class="daily-cell label" style="color:#94a3b8;font-size:11px">${cat.cat}</div><div style="grid-column:2/-1"></div></div>`;
+                    html += `<div class="daily-row" style="${rowStyle};grid-template-columns:${gridCols}"><div class="daily-cell label" style="color:#94a3b8;font-size:11px">${cat.cat}</div><div style="grid-column:2/-1"></div></div>`;
                     cat.items.forEach(m => {
                         const d = getMemberDaily(member.id);
                         const arr = d[m.key] || [0,0,0,0,0,0,0];
-                        const total = arr.reduce((a,b) => a+b, 0);
+                        // 有効なインデックスのみの合計
+                        const total = validIndices.reduce((sum, idx) => sum + (arr[idx] || 0), 0);
 
                         if (m.key === 'muchaku') {
                             // 無着地は理由ボタン付き
-                            html += `<div class="daily-row sub" style="${rowStyle}"><div class="daily-cell label">${m.label}</div>`;
-                            html += [0,1,2,3,4,5,6].map(i => {
-                                const dateLabel = `${dates[i].getMonth()+1}/${dates[i].getDate()}`;
+                            html += `<div class="daily-row sub" style="${rowStyle};grid-template-columns:100px repeat(${numCols}, 1fr) 80px"><div class="daily-cell label">${m.label}</div>`;
+                            html += validIndices.map((i, idx) => {
+                                const dateLabel = `${dates[idx].getMonth()+1}/${dates[idx].getDate()}`;
                                 const hasReasons = hasMuchakuReasons(member.id, i);
                                 const btnStyle = arr[i] > 0 ? (hasReasons ? 'background:#22c55e;' : 'background:#eab308;') : 'background:#475569;opacity:0.5;';
                                 return `<div class="daily-cell" style="display:flex;gap:2px;align-items:center;padding:2px">
@@ -2650,9 +2771,9 @@
                             html += `<div class="daily-cell total">${total}</div></div>`;
                         } else if (m.key === 'ng') {
                             // NGは理由ボタン付き
-                            html += `<div class="daily-row sub" style="${rowStyle}"><div class="daily-cell label">${m.label}</div>`;
-                            html += [0,1,2,3,4,5,6].map(i => {
-                                const dateLabel = `${dates[i].getMonth()+1}/${dates[i].getDate()}`;
+                            html += `<div class="daily-row sub" style="${rowStyle};grid-template-columns:100px repeat(${numCols}, 1fr) 80px"><div class="daily-cell label">${m.label}</div>`;
+                            html += validIndices.map((i, idx) => {
+                                const dateLabel = `${dates[idx].getMonth()+1}/${dates[idx].getDate()}`;
                                 const hasReasons = hasNgReasons(member.id, i);
                                 const btnStyle = arr[i] > 0 ? (hasReasons ? 'background:#22c55e;' : 'background:#eab308;') : 'background:#475569;opacity:0.5;';
                                 return `<div class="daily-cell" style="display:flex;gap:2px;align-items:center;padding:2px">
@@ -2662,7 +2783,7 @@
                             }).join('');
                             html += `<div class="daily-cell total">${total}</div></div>`;
                         } else {
-                            html += `<div class="daily-row sub" style="${rowStyle}"><div class="daily-cell label">${m.label}</div>${[0,1,2,3,4,5,6].map(i => `<div class="daily-cell"><input type="number" value="${arr[i]}" min="0" ${disabledAttr} onchange="updateDaily('${member.id}','${m.key}',${i},this.value)"></div>`).join('')}<div class="daily-cell total">${total}</div></div>`;
+                            html += `<div class="daily-row sub" style="${rowStyle};grid-template-columns:100px repeat(${numCols}, 1fr) 80px"><div class="daily-cell label">${m.label}</div>${validIndices.map(i => `<div class="daily-cell"><input type="number" value="${arr[i]}" min="0" ${disabledAttr} onchange="updateDaily('${member.id}','${m.key}',${i},this.value)"></div>`).join('')}<div class="daily-cell total">${total}</div></div>`;
                         }
                     });
                 });
@@ -3492,7 +3613,12 @@
 
         // 日報（Nippo）機能
         function renderWeekTabs() {
-            const html = [1,2,3,4,5].map(w =>
+            const maxWeeks = getMaxWeeksInMonth();
+            const weeks = [];
+            for (let w = 1; w <= maxWeeks; w++) {
+                weeks.push(w);
+            }
+            const html = weeks.map(w =>
                 `<button class="week-tab ${w === currentWeekNum ? 'active' : ''}" onclick="switchWeekTab(${w})">第${w}週</button>`
             ).join('');
             document.getElementById('weekTabs').innerHTML = html;
@@ -3531,7 +3657,7 @@
             renderWeekTabs();
 
             const currentUserId = data.settings.currentUserId;
-            const dates = getWeekDates();
+            const { dates, validIndices } = getWeekDates();
             const days = ['土','日','月','火','水','木','金'];
             const monthVideos = getMonthVideos();
 
@@ -3544,7 +3670,8 @@
             if (membersToShow.length === 0) {
                 html = '<p style="color:#64748b;text-align:center;padding:40px">メンバーを設定タブで追加してください</p>';
             } else {
-                dates.forEach((date, dayIndex) => {
+                dates.forEach((date, idx) => {
+                    const dayIndex = validIndices[idx];
                     const dateStr = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
                     const videoUrl = monthVideos[dateStr] || '';
 
@@ -3817,8 +3944,9 @@
             const dayOfWeek = dateObj.getDay(); // 0=日, 1=月, ..., 6=土
             const dayIndex = (dayOfWeek + 1) % 7; // 土=0, 日=1, 月=2, ...
 
-            // この日付が含まれる週を探す
-            for (let month = dateObj.getMonth() + 1; month >= 1; month--) {
+            // この日付が含まれる週を探す（翌月から検索開始 - 月末日が翌月週1に属する場合対応）
+            const startMonth = Math.min(dateObj.getMonth() + 2, 12);
+            for (let month = startMonth; month >= 1; month--) {
                 for (let weekNum = 1; weekNum <= 5; weekNum++) {
                     const firstDay = new Date(year, month - 1, 1);
                     const dow = (firstDay.getDay() + 1) % 7;
@@ -4273,6 +4401,23 @@
             console.log('=== renderSettings開始 ===');
             console.log('メンバー数:', data.members.length);
 
+            // 現在のユーザー選択ドロップダウンを最初に更新（他のエラーに影響されないように）
+            try {
+                const currentUserSelect = document.getElementById('currentUserSelect');
+                if (currentUserSelect) {
+                    const optionsHtml = '<option value="">-- 選択してください --</option>' +
+                        data.members.map(m => `<option value="${m.id}" ${data.settings.currentUserId === m.id ? 'selected' : ''}>${m.name}</option>`).join('');
+                    currentUserSelect.innerHTML = optionsHtml;
+                    console.log('✅ ユーザー選択ドロップダウン更新完了, オプション数:', currentUserSelect.options.length);
+                }
+                const warning = document.getElementById('currentUserWarning');
+                if (warning) {
+                    warning.style.display = data.settings.currentUserId ? 'none' : 'block';
+                }
+            } catch (e) {
+                console.error('❌ ユーザー選択更新エラー:', e);
+            }
+
             // メンバーリスト
             try {
                 document.getElementById('memberList').innerHTML = data.members.length === 0 ? '<p style="color:#64748b">メンバーを追加してください</p>' :
@@ -4283,62 +4428,34 @@
             }
 
             // ヒントテキストを更新
-            const hintEl = document.getElementById('settingsHint');
-            const editableArea = document.getElementById('settingsEditableArea');
-
-            const currentUserId = data.settings.currentUserId;
-            const isMySettings = selectedMember === currentUserId;
-
-            if (selectedMember === 'all') {
-                // 全体選択時：合計を表示（編集不可）
-                if (hintEl) {
-                    hintEl.innerHTML = '※ <strong style="color:#f59e0b">「全体」選択時は閲覧のみ</strong> - 各メンバーの目標合計を表示しています。編集するには個別メンバーを選択してください。';
-                }
-                // 各メンバーの合計を計算して表示
-                displayTeamTotals();
-                // 入力フィールドを無効化
-                disableInputs(true);
-            } else if (!isMySettings) {
-                // 他のメンバー選択時：閲覧のみ（編集不可）
-                const memberName = data.members.find(m => m.id === selectedMember)?.name || '';
-                if (hintEl) {
-                    hintEl.innerHTML = `※ <strong style="color:#ef4444">🔒 「${memberName}」さんの設定は閲覧のみ</strong> - 他のメンバーの設定は編集できません。`;
-                }
-                // 設定を読み込むが編集不可
-                loadMemberSettings(selectedMember);
-                disableInputs(true);
-            } else {
-                // 自分選択時：編集可能
-                if (hintEl) {
-                    const memberName = data.members.find(m => m.id === selectedMember)?.name || '';
-                    hintEl.innerHTML = `※ 現在「<strong style="color:#6366f1">${memberName}</strong>」さん個人の目標を設定中`;
-                }
-                // 入力フィールドを有効化
-                disableInputs(false);
-                // グローバルのselectedMemberを使用
-                loadMemberSettings(selectedMember);
-            }
-
-            // インスタ設定はloadMemberSettingsでメンバーごとに読み込み済み
-
-            // 現在のユーザー選択ドロップダウンを更新
             try {
-                const currentUserSelect = document.getElementById('currentUserSelect');
-                if (currentUserSelect) {
-                    currentUserSelect.innerHTML = '<option value="">-- 選択してください --</option>' +
-                        data.members.map(m => `<option value="${m.id}" ${data.settings.currentUserId === m.id ? 'selected' : ''}>${m.name}</option>`).join('');
-                    console.log('✅ ユーザー選択ドロップダウン更新完了');
-                } else {
-                    console.warn('⚠️ currentUserSelect要素が見つかりません');
-                }
+                const hintEl = document.getElementById('settingsHint');
+                const currentUserId = data.settings.currentUserId;
+                const isMySettings = selectedMember === currentUserId;
 
-                // 警告表示の切り替え
-                const warning = document.getElementById('currentUserWarning');
-                if (warning) {
-                    warning.style.display = data.settings.currentUserId ? 'none' : 'block';
+                if (selectedMember === 'all') {
+                    if (hintEl) {
+                        hintEl.innerHTML = '※ <strong style="color:#f59e0b">「全体」選択時は閲覧のみ</strong> - 各メンバーの目標合計を表示しています。編集するには個別メンバーを選択してください。';
+                    }
+                    displayTeamTotals();
+                    disableInputs(true);
+                } else if (!isMySettings) {
+                    const memberName = data.members.find(m => m.id === selectedMember)?.name || '';
+                    if (hintEl) {
+                        hintEl.innerHTML = `※ <strong style="color:#ef4444">🔒 「${memberName}」さんの設定は閲覧のみ</strong> - 他のメンバーの設定は編集できません。`;
+                    }
+                    loadMemberSettings(selectedMember);
+                    disableInputs(true);
+                } else {
+                    if (hintEl) {
+                        const memberName = data.members.find(m => m.id === selectedMember)?.name || '';
+                        hintEl.innerHTML = `※ 現在「<strong style="color:#6366f1">${memberName}</strong>」さん個人の目標を設定中`;
+                    }
+                    disableInputs(false);
+                    loadMemberSettings(selectedMember);
                 }
             } catch (e) {
-                console.error('❌ ユーザー選択更新エラー:', e);
+                console.error('❌ 設定読み込みエラー:', e);
             }
         }
 
@@ -4430,32 +4547,36 @@
                 }
             });
 
-            // 合計値を表示
-            document.getElementById('bPost').value = budgetTotal.post;
-            document.getElementById('bApoGet').value = budgetTotal.apoGet;
-            document.getElementById('bApoExec').value = budgetTotal.apoExec;
-            document.getElementById('bDoinGet').value = budgetTotal.doinGet;
-            document.getElementById('bDoinExec').value = budgetTotal.doinExec;
-            document.getElementById('bMendan').value = budgetTotal.mendan;
-            document.getElementById('bSeiyaku').value = budgetTotal.seiyaku;
+            // 合計値を表示（要素の存在チェック付き）
+            const setValueSafe = (id, val) => {
+                const el = document.getElementById(id);
+                if (el) el.value = val;
+            };
+            setValueSafe('bPost', budgetTotal.post);
+            setValueSafe('bApoGet', budgetTotal.apoGet);
+            setValueSafe('bApoExec', budgetTotal.apoExec);
+            setValueSafe('bDoinGet', budgetTotal.doinGet);
+            setValueSafe('bDoinExec', budgetTotal.doinExec);
+            setValueSafe('bMendan', budgetTotal.mendan);
+            setValueSafe('bSeiyaku', budgetTotal.seiyaku);
 
-            document.getElementById('mPost').value = monthlyTotal.post;
-            document.getElementById('mApoGet').value = monthlyTotal.apoGet;
-            document.getElementById('mApoExec').value = monthlyTotal.apoExec;
-            document.getElementById('mDoinGet').value = monthlyTotal.doinGet;
-            document.getElementById('mDoinExec').value = monthlyTotal.doinExec;
-            document.getElementById('mMendan').value = monthlyTotal.mendan;
-            document.getElementById('mMendanExec').value = monthlyTotal.mendanExec;
-            document.getElementById('mSeiyaku').value = monthlyTotal.seiyaku;
+            setValueSafe('mPost', monthlyTotal.post);
+            setValueSafe('mApoGet', monthlyTotal.apoGet);
+            setValueSafe('mApoExec', monthlyTotal.apoExec);
+            setValueSafe('mDoinGet', monthlyTotal.doinGet);
+            setValueSafe('mDoinExec', monthlyTotal.doinExec);
+            setValueSafe('mMendan', monthlyTotal.mendan);
+            setValueSafe('mMendanExec', monthlyTotal.mendanExec);
+            setValueSafe('mSeiyaku', monthlyTotal.seiyaku);
 
             // インスタ目標の合計を表示
-            document.getElementById('igGoalSend').value = igTotal.send;
-            document.getElementById('igGoalReply').value = igTotal.reply;
-            document.getElementById('igGoalOffer').value = igTotal.offer;
-            document.getElementById('igGoalApoGet').value = igTotal.apoGet;
-            document.getElementById('igGoalApoExec').value = igTotal.apoExec;
-            document.getElementById('igGoalDoinExec').value = igTotal.doinExec;
-            document.getElementById('igGoalSeiyaku').value = igTotal.seiyaku;
+            setValueSafe('igGoalSend', igTotal.send);
+            setValueSafe('igGoalReply', igTotal.reply);
+            setValueSafe('igGoalOffer', igTotal.offer);
+            setValueSafe('igGoalApoGet', igTotal.apoGet);
+            setValueSafe('igGoalApoExec', igTotal.apoExec);
+            setValueSafe('igGoalDoinExec', igTotal.doinExec);
+            setValueSafe('igGoalSeiyaku', igTotal.seiyaku);
         }
 
         function loadMemberSettings(memberId) {
@@ -4793,6 +4914,14 @@
                 if (!data.settings.currentUserId) data.settings.currentUserId = null;
                 if (!data.lastUpdated) data.lastUpdated = null;
                 if (!data.deletedMembers) data.deletedMembers = [];
+                // membersが配列であることを確認
+                if (data.members && !Array.isArray(data.members)) {
+                    data.members = Object.values(data.members);
+                    console.log('⚠️ loadData: membersをオブジェクトから配列に変換しました');
+                }
+                if (!data.members) {
+                    data.members = [];
+                }
                 if (data.weeks) {
                     for (const weekKey in data.weeks) {
                         if (data.weeks[weekKey].review && !data.weeks[weekKey].review.ngReasons) {
@@ -4809,10 +4938,20 @@
                 if (firebaseData) {
                     const localSettings = data.settings ? { ...data.settings } : {};
                     data = { ...data, ...firebaseData };
+
+                    // membersが配列であることを確認（Firebaseがオブジェクトに変換する場合がある）
+                    if (data.members && !Array.isArray(data.members)) {
+                        data.members = Object.values(data.members);
+                        console.log('⚠️ membersをオブジェクトから配列に変換しました');
+                    }
+                    if (!data.members) {
+                        data.members = [];
+                    }
+
                     data.settings = { ...firebaseData.settings, ...localSettings };
                     localStorage.setItem('salesPro_core', JSON.stringify(data));
                     renderAll();
-                    console.log('🔥 Firebaseからリアルタイム更新');
+                    console.log('🔥 Firebaseからリアルタイム更新, メンバー数:', data.members.length);
                 }
             });
             firebaseInitialized = true;
