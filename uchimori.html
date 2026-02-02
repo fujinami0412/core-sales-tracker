@@ -4586,53 +4586,37 @@
             saveData(); renderSummary(); renderReview(); renderInstagram(); syncToCloud();
         }
 
-        // メンバーの目標を取得（個人設定があれば個人、なければ全体を均等割り）
+        // メンバーの目標を取得（個人設定があれば個人、なければ0）
         function getMemberGoals(memberId) {
             const memberSettings = data.settings.memberSettings;
             const monthKey = getMonthKey();
 
-            // デバッグ: memberSettingsの状態を確認
-            const debugInfo = {
-                memberId: memberId,
-                monthKey: monthKey,
-                hasMemberSettings: !!memberSettings,
-                hasMemberEntry: !!(memberSettings && memberSettings[memberId]),
-                hasMonthEntry: !!(memberSettings && memberSettings[memberId] && memberSettings[memberId][monthKey]),
-                hasMonthly: !!(memberSettings && memberSettings[memberId] && memberSettings[memberId][monthKey] && memberSettings[memberId][monthKey].monthly)
-            };
-
+            // メンバーの個人設定があれば（0でも）それを使用
             if (memberSettings && memberSettings[memberId] && memberSettings[memberId][monthKey] && memberSettings[memberId][monthKey].monthly) {
                 const monthly = memberSettings[memberId][monthKey].monthly;
-                // 実際に値が入っているかチェック
-                const hasValues = Object.keys(monthly).length > 0 &&
-                    Object.values(monthly).some(v => v > 0);
-
-                debugInfo.monthlyValues = monthly;
-                debugInfo.hasValues = hasValues;
-
-                if (hasValues) {
-                    console.log('🎯 getMemberGoals返却(個人設定):', JSON.stringify(debugInfo));
-                    return monthly;
-                }
+                return {
+                    post: monthly.post || 0,
+                    apoGet: monthly.apoGet || 0,
+                    apoExec: monthly.apoExec || 0,
+                    doinGet: monthly.doinGet || 0,
+                    doinExec: monthly.doinExec || 0,
+                    mendan: monthly.mendan || 0,
+                    mendanExec: monthly.mendanExec || 0,
+                    seiyaku: monthly.seiyaku || 0
+                };
             }
 
-            // 個人設定がない場合は全体目標を均等割り
-            const mo = data.settings.monthly || {};
-            const memberCount = data.members.length || 1;
-            const fallback = {
-                post: Math.ceil((mo.post || 0) / memberCount),
-                apoGet: Math.ceil((mo.apoGet || 0) / memberCount),
-                apoExec: Math.ceil((mo.apoExec || 0) / memberCount),
-                doinGet: Math.ceil((mo.doinGet || 0) / memberCount),
-                doinExec: Math.ceil((mo.doinExec || 0) / memberCount),
-                mendan: Math.ceil((mo.mendan || 0) / memberCount),
-                mendanExec: Math.ceil((mo.mendanExec || 0) / memberCount),
-                seiyaku: Math.ceil((mo.seiyaku || 0) / memberCount)
+            // 個人設定がない場合は0を返す（フォールバックしない）
+            return {
+                post: 0,
+                apoGet: 0,
+                apoExec: 0,
+                doinGet: 0,
+                doinExec: 0,
+                mendan: 0,
+                mendanExec: 0,
+                seiyaku: 0
             };
-            debugInfo.fallbackUsed = true;
-            debugInfo.globalMonthly = mo;
-            console.log('⚠️ getMemberGoals返却(フォールバック):', JSON.stringify(debugInfo));
-            return fallback;
         }
 
         // デバッグ用: データ状態を確認
