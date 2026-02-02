@@ -1139,11 +1139,14 @@
         <div id="tab-instagram" class="tab-content">
             <!-- アカウント選択 -->
             <div class="section" style="padding: 12px 16px; margin-bottom: 16px;">
-                <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-                    <label style="font-size: 14px; font-weight: 600;">分析対象:</label>
-                    <select id="igAccountSelect" onchange="changeIgAccount()" style="min-width: 200px; padding: 8px 12px;">
-                        <option value="all">全アカウント合計</option>
-                    </select>
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <label style="font-size: 14px; font-weight: 600;">分析対象:</label>
+                        <select id="igAccountSelect" onchange="changeIgAccount()" style="min-width: 200px; padding: 8px 12px;">
+                            <option value="all">全アカウント合計</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-primary" onclick="exportInstagramCSV()">📊 CSVエクスポート</button>
                 </div>
             </div>
             <!-- サマリーカード -->
@@ -5230,6 +5233,76 @@ function doPost(e) {
             r.onload = ev => { try { data = JSON.parse(ev.target.result); saveData(); renderAll(); alert('インポート完了'); } catch { alert('読み込み失敗'); } };
             r.readAsText(f);
             e.target.value = '';
+        }
+
+        function exportInstagramCSV() {
+            const weekKey = getWeekKey();
+            const weekData = data.weeks[weekKey];
+            if (!weekData || !weekData.instagram) {
+                alert('この週のInstagramデータがありません');
+                return;
+            }
+
+            const days = ['月', '火', '水', '木', '金', '土', '日'];
+            const headers = ['アカウント名', '日付', 'フォロー', 'フォロワー', 'フォロー解除', 'フォロワー解除', 'DM送信', 'DM返信', 'DMオファー', 'アポ獲得', 'アポ実施', '動員予定', '動員実施', '成約', 'ブロック'];
+
+            let csv = headers.join(',') + '\n';
+
+            data.accounts.forEach(account => {
+                const igData = weekData.instagram[account.id];
+                if (!igData) return;
+
+                for (let i = 0; i < 7; i++) {
+                    const row = [
+                        `"${account.name}"`,
+                        days[i],
+                        igData.follow?.[i] || 0,
+                        igData.follower?.[i] || 0,
+                        igData.followCut?.[i] || 0,
+                        igData.followerCut?.[i] || 0,
+                        igData.dmSend?.[i] || 0,
+                        igData.dmReply?.[i] || 0,
+                        igData.dmOffer?.[i] || 0,
+                        igData.apoGet?.[i] || 0,
+                        igData.apoExec?.[i] || 0,
+                        igData.doinPlan?.[i] || 0,
+                        igData.doinExec?.[i] || 0,
+                        igData.seiyaku?.[i] || 0,
+                        igData.blocked?.[i] ? 'はい' : 'いいえ'
+                    ];
+                    csv += row.join(',') + '\n';
+                }
+            });
+
+            csv += '\n--- 週別合計 ---\n';
+            csv += 'アカウント名,フォロー計,フォロワー計,DM送信計,DM返信計,DMオファー計,アポ獲得計,アポ実施計,動員実施計,成約計\n';
+
+            data.accounts.forEach(account => {
+                const igData = weekData.instagram[account.id];
+                if (!igData) return;
+
+                const sum = (arr) => (arr || []).reduce((a, b) => a + (b || 0), 0);
+                const row = [
+                    `"${account.name}"`,
+                    sum(igData.follow),
+                    sum(igData.follower),
+                    sum(igData.dmSend),
+                    sum(igData.dmReply),
+                    sum(igData.dmOffer),
+                    sum(igData.apoGet),
+                    sum(igData.apoExec),
+                    sum(igData.doinExec),
+                    sum(igData.seiyaku)
+                ];
+                csv += row.join(',') + '\n';
+            });
+
+            const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+            const blob = new Blob([bom, csv], { type: 'text/csv;charset=utf-8' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `instagram-${weekKey}.csv`;
+            a.click();
         }
 
         function clearData() { if (!confirm('全データを削除しますか？')) return; localStorage.removeItem('salesPro_uchimori'); location.reload(); }
