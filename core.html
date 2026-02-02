@@ -1674,6 +1674,22 @@
                 };
             }
             if (!data.weeks[k].nippo) data.weeks[k].nippo = {};
+            if (!data.weeks[k].review) data.weeks[k].review = {
+                mainIssue: '', mainCause: '',
+                causeActions: [
+                    { cause: '', actions: [] },
+                    { cause: '', actions: [] },
+                    { cause: '', actions: [] },
+                    { cause: '', actions: [] },
+                    { cause: '', actions: [] }
+                ],
+                muchakuReasons: {},
+                muchakuOther: '',
+                ngReasons: {},
+                doinMuchakuList: [],
+                cases: [],
+                cancels: []
+            };
             return data.weeks[k];
         }
 
