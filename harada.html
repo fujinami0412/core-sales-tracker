@@ -1715,60 +1715,22 @@
         }
 
         // 月内の最大週数を取得
-        function getMaxWeeksInMonth() {
-            const firstDayOfMonth = new Date(currentYear, currentMonth - 1, 1);
-            const lastDayOfMonth = new Date(currentYear, currentMonth, 0).getDate();
-            const dow = (firstDayOfMonth.getDay() + 1) % 7; // 土曜始まり
-            return Math.ceil((lastDayOfMonth + dow) / 7);
-        }
-
-        // 指定週で有効な曜日インデックスを取得（月内の日のみ）
-        function getValidIndicesForWeek(weekNum) {
-            const firstDayOfMonth = new Date(currentYear, currentMonth - 1, 1);
-            const lastDayOfMonth = new Date(currentYear, currentMonth, 0).getDate();
-            const dow = (firstDayOfMonth.getDay() + 1) % 7;
-            const weekStart = 1 - dow + (weekNum - 1) * 7;
-
-            const indices = [];
-            for (let i = 0; i < 7; i++) {
-                const dayOfMonth = weekStart + i;
-                if (dayOfMonth >= 1 && dayOfMonth <= lastDayOfMonth) {
-                    indices.push(i);
-                }
-            }
-            return indices;
-        }
-
         function getWeekDates() {
             const firstDayOfMonth = new Date(currentYear, currentMonth - 1, 1);
-            const lastDayOfMonth = new Date(currentYear, currentMonth, 0).getDate();
             const dow = (firstDayOfMonth.getDay() + 1) % 7;
             const weekStart = 1 - dow + (currentWeekNum - 1) * 7;
-
             const dates = [];
-            const validIndices = [];
-
             for (let i = 0; i < 7; i++) {
-                const dayOfMonth = weekStart + i;
-                if (dayOfMonth >= 1 && dayOfMonth <= lastDayOfMonth) {
-                    dates.push(new Date(currentYear, currentMonth - 1, dayOfMonth));
-                    validIndices.push(i);
-                }
+                dates.push(new Date(currentYear, currentMonth - 1, weekStart + i));
             }
-            return { dates, validIndices };
+            return dates;
         }
 
         function updateWeekLabel() {
-            const { dates } = getWeekDates();
-            if (dates.length === 0) return;
-            const startDate = dates[0];
-            const endDate = dates[dates.length - 1];
-            let label = `${startDate.getMonth()+1}/${startDate.getDate()}`;
-            if (dates.length > 1) {
-                label += `〜${endDate.getMonth()+1}/${endDate.getDate()}`;
-            }
-            label += `（第${currentWeekNum}週）`;
-            document.getElementById('weekLabel').textContent = label;
+            const dates = getWeekDates();
+            const s = dates[0], e = dates[6];
+            document.getElementById('weekLabel').textContent =
+                `${s.getMonth()+1}/${s.getDate()}〜${e.getMonth()+1}/${e.getDate()}（第${currentWeekNum}週）`;
         }
 
         function updateMonthLabel() {
@@ -1791,22 +1753,14 @@
         function prevWeek() {
             saveAll();
             currentWeekNum--;
-            if (currentWeekNum < 1) {
-                currentMonth--;
-                if (currentMonth < 1) { currentMonth = 12; currentYear--; }
-                currentWeekNum = getMaxWeeksInMonth();
-            }
+            if (currentWeekNum < 1) { currentWeekNum = 5; currentMonth--; if (currentMonth < 1) { currentMonth = 12; currentYear--; } }
             updateWeekLabel(); renderAll(); applySeasonalBackground();
         }
 
         function nextWeek() {
             saveAll();
             currentWeekNum++;
-            if (currentWeekNum > getMaxWeeksInMonth()) {
-                currentMonth++;
-                if (currentMonth > 12) { currentMonth = 1; currentYear++; }
-                currentWeekNum = 1;
-            }
+            if (currentWeekNum > 5) { currentWeekNum = 1; currentMonth++; if (currentMonth > 12) { currentMonth = 1; currentYear++; } }
             updateWeekLabel(); renderAll(); applySeasonalBackground();
         }
 
@@ -1899,33 +1853,24 @@
             const members = selectedMember === 'all' ? data.members : data.members.filter(m => m.id === selectedMember);
 
             if (viewPeriod === 'month') {
-                // 月全体の合計（有効なインデックスのみ）
-                const maxWeeks = getMaxWeeksInMonth();
-                for (let w = 1; w <= maxWeeks; w++) {
+                for (let w = 1; w <= 5; w++) {
                     const weekKey = `${currentYear}-${currentMonth}-W${w}`;
-                    const validIndices = getValidIndicesForWeek(w);
                     if (data.weeks[weekKey]) {
                         members.forEach(m => {
                             const d = data.weeks[weekKey].daily[m.id];
                             if (d) {
                                 metrics.forEach(c => c.items.forEach(met => {
-                                    validIndices.forEach(idx => {
-                                        t[met.key] += (d[met.key] || [0,0,0,0,0,0,0])[idx] || 0;
-                                    });
+                                    t[met.key] += (d[met.key] || [0,0,0,0,0,0,0]).reduce((a,b)=>a+b,0);
                                 }));
                             }
                         });
                     }
                 }
             } else {
-                // 週の合計（有効なインデックスのみ）
-                const validIndices = getValidIndicesForWeek(currentWeekNum);
                 members.forEach(m => {
                     const d = getMemberDaily(m.id);
                     metrics.forEach(c => c.items.forEach(met => {
-                        validIndices.forEach(idx => {
-                            t[met.key] += (d[met.key] || [0,0,0,0,0,0,0])[idx] || 0;
-                        });
+                        t[met.key] += (d[met.key] || [0,0,0,0,0,0,0]).reduce((a,b)=>a+b,0);
                     }));
                 });
             }
@@ -1937,26 +1882,19 @@
             metrics.forEach(c => c.items.forEach(m => t[m.key] = 0));
 
             if (viewPeriod === 'month') {
-                const maxWeeks = getMaxWeeksInMonth();
-                for (let w = 1; w <= maxWeeks; w++) {
+                for (let w = 1; w <= 5; w++) {
                     const weekKey = `${currentYear}-${currentMonth}-W${w}`;
-                    const validIndices = getValidIndicesForWeek(w);
                     if (data.weeks[weekKey] && data.weeks[weekKey].daily[memberId]) {
                         const d = data.weeks[weekKey].daily[memberId];
                         metrics.forEach(c => c.items.forEach(met => {
-                            validIndices.forEach(idx => {
-                                t[met.key] += (d[met.key] || [0,0,0,0,0,0,0])[idx] || 0;
-                            });
+                            t[met.key] += (d[met.key] || [0,0,0,0,0,0,0]).reduce((a,b)=>a+b,0);
                         }));
                     }
                 }
             } else {
-                const validIndices = getValidIndicesForWeek(currentWeekNum);
                 const d = getMemberDaily(memberId);
                 metrics.forEach(c => c.items.forEach(met => {
-                    validIndices.forEach(idx => {
-                        t[met.key] += (d[met.key] || [0,0,0,0,0,0,0])[idx] || 0;
-                    });
+                    t[met.key] += (d[met.key] || [0,0,0,0,0,0,0]).reduce((a,b)=>a+b,0);
                 }));
             }
             return t;
@@ -2723,18 +2661,11 @@
             }
 
             const currentUserId = data.settings.currentUserId;
-            const { dates, validIndices } = getWeekDates();
-            if (dates.length === 0) {
-                document.getElementById('dailyInputArea').innerHTML = '<p style="color:#94a3b8;text-align:center;padding:20px;">この週には表示する日がありません</p>';
-                return;
-            }
-
+            const dates = getWeekDates();
             const days = ['土','日','月','火','水','木','金'];
-            const numCols = dates.length;
-            const gridCols = `120px repeat(${numCols}, 1fr) 80px`;
 
             // ヘッダー
-            let html = `<div class="daily-header" style="grid-template-columns:${gridCols}"><div class="daily-cell header">項目</div>${dates.map((d, idx) => `<div class="daily-cell header">${days[validIndices[idx]]}<br>${d.getMonth()+1}/${d.getDate()}</div>`).join('')}<div class="daily-cell header">合計</div></div>`;
+            let html = '<div class="daily-header"><div class="daily-cell header">項目</div>' + dates.map((d,i) => `<div class="daily-cell header">${days[i]}<br>${d.getMonth()+1}/${d.getDate()}</div>`).join('') + '<div class="daily-cell header">合計</div></div>';
 
             const members = selectedMember === 'all' ? data.members : data.members.filter(m => m.id === selectedMember);
             members.forEach(member => {
@@ -2743,20 +2674,18 @@
                 const rowStyle = isMyData ? '' : 'opacity:0.6;';
                 const lockIcon = isMyData ? '' : ' 🔒';
 
-                html += `<div class="daily-row" style="${rowStyle};grid-template-columns:${gridCols}"><div class="daily-cell category" style="grid-column:1/-1">${member.name}${lockIcon}</div></div>`;
+                html += `<div class="daily-row" style="${rowStyle}"><div class="daily-cell category" style="grid-column:1/-1">${member.name}${lockIcon}</div></div>`;
                 metrics.forEach(cat => {
-                    html += `<div class="daily-row" style="${rowStyle};grid-template-columns:${gridCols}"><div class="daily-cell label" style="color:#94a3b8;font-size:11px">${cat.cat}</div><div style="grid-column:2/-1"></div></div>`;
+                    html += `<div class="daily-row" style="${rowStyle}"><div class="daily-cell label" style="color:#94a3b8;font-size:11px">${cat.cat}</div><div style="grid-column:2/-1"></div></div>`;
                     cat.items.forEach(m => {
                         const d = getMemberDaily(member.id);
                         const arr = d[m.key] || [0,0,0,0,0,0,0];
-                        // 有効なインデックスのみの合計
-                        const total = validIndices.reduce((sum, idx) => sum + (arr[idx] || 0), 0);
+                        const total = arr.reduce((a,b)=>a+b,0);
 
                         if (m.key === 'muchaku') {
-                            // 無着地は理由ボタン付き
-                            html += `<div class="daily-row sub" style="${rowStyle};grid-template-columns:100px repeat(${numCols}, 1fr) 80px"><div class="daily-cell label">${m.label}</div>`;
-                            html += validIndices.map((i, idx) => {
-                                const dateLabel = `${dates[idx].getMonth()+1}/${dates[idx].getDate()}`;
+                            html += `<div class="daily-row sub" style="${rowStyle}"><div class="daily-cell label">${m.label}</div>`;
+                            html += [0,1,2,3,4,5,6].map(i => {
+                                const dateLabel = `${dates[i].getMonth()+1}/${dates[i].getDate()}`;
                                 const hasReasons = hasMuchakuReasons(member.id, i);
                                 const btnStyle = arr[i] > 0 ? (hasReasons ? 'background:#22c55e;' : 'background:#eab308;') : 'background:#475569;opacity:0.5;';
                                 return `<div class="daily-cell" style="display:flex;gap:2px;align-items:center;padding:2px">
@@ -2766,10 +2695,9 @@
                             }).join('');
                             html += `<div class="daily-cell total">${total}</div></div>`;
                         } else if (m.key === 'ng') {
-                            // NGは理由ボタン付き
-                            html += `<div class="daily-row sub" style="${rowStyle};grid-template-columns:100px repeat(${numCols}, 1fr) 80px"><div class="daily-cell label">${m.label}</div>`;
-                            html += validIndices.map((i, idx) => {
-                                const dateLabel = `${dates[idx].getMonth()+1}/${dates[idx].getDate()}`;
+                            html += `<div class="daily-row sub" style="${rowStyle}"><div class="daily-cell label">${m.label}</div>`;
+                            html += [0,1,2,3,4,5,6].map(i => {
+                                const dateLabel = `${dates[i].getMonth()+1}/${dates[i].getDate()}`;
                                 const hasReasons = hasNgReasons(member.id, i);
                                 const btnStyle = arr[i] > 0 ? (hasReasons ? 'background:#22c55e;' : 'background:#eab308;') : 'background:#475569;opacity:0.5;';
                                 return `<div class="daily-cell" style="display:flex;gap:2px;align-items:center;padding:2px">
@@ -2779,7 +2707,7 @@
                             }).join('');
                             html += `<div class="daily-cell total">${total}</div></div>`;
                         } else {
-                            html += `<div class="daily-row sub" style="${rowStyle};grid-template-columns:100px repeat(${numCols}, 1fr) 80px"><div class="daily-cell label">${m.label}</div>${validIndices.map(i => `<div class="daily-cell"><input type="number" value="${arr[i]}" min="0" ${disabledAttr} onchange="updateDaily('${member.id}','${m.key}',${i},this.value)"></div>`).join('')}<div class="daily-cell total">${total}</div></div>`;
+                            html += `<div class="daily-row sub" style="${rowStyle}"><div class="daily-cell label">${m.label}</div>${[0,1,2,3,4,5,6].map(i => `<div class="daily-cell"><input type="number" value="${arr[i]}" min="0" ${disabledAttr} onchange="updateDaily('${member.id}','${m.key}',${i},this.value)"></div>`).join('')}<div class="daily-cell total">${total}</div></div>`;
                         }
                     });
                 });
@@ -3609,10 +3537,7 @@
 
         // 日報（Nippo）機能
         function renderWeekTabs() {
-            const maxWeeks = getMaxWeeksInMonth();
-            const weeks = [];
-            for (let w = 1; w <= maxWeeks; w++) weeks.push(w);
-            const html = weeks.map(w =>
+            const html = [1,2,3,4,5].map(w =>
                 `<button class="week-tab ${w === currentWeekNum ? 'active' : ''}" onclick="switchWeekTab(${w})">第${w}週</button>`
             ).join('');
             document.getElementById('weekTabs').innerHTML = html;
@@ -3651,23 +3576,19 @@
             renderWeekTabs();
 
             const currentUserId = data.settings.currentUserId;
-            const { dates, validIndices } = getWeekDates();
+            const dates = getWeekDates();
             const days = ['土','日','月','火','水','木','金'];
             const monthVideos = getMonthVideos();
 
             let html = '';
 
-            // グローバルのselectedMemberを使用
             const membersToShow = selectedMember === 'all' ? data.members :
                 data.members.filter(m => m.id === selectedMember);
 
             if (membersToShow.length === 0) {
                 html = '<p style="color:#64748b;text-align:center;padding:40px">メンバーを設定タブで追加してください</p>';
-            } else if (dates.length === 0) {
-                html = '<p style="color:#64748b;text-align:center;padding:40px">この週には表示する日がありません</p>';
             } else {
-                dates.forEach((date, idx) => {
-                    const dayIndex = validIndices[idx];
+                dates.forEach((date, dayIndex) => {
                     const dateStr = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
                     const videoUrl = monthVideos[dateStr] || '';
 
