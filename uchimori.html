@@ -1283,21 +1283,10 @@
 
         <!-- 設定タブ -->
         <div id="tab-settings" class="tab-content">
-            <div class="setup-guide" id="setupGuide">
-                <h3>🔗 Googleスプレッドシート連携（チーム共有）</h3>
-                <p style="margin-bottom:12px">チームでリアルタイムにデータを共有するには、以下の設定が必要です：</p>
-                <ol>
-                    <li>新しいGoogleスプレッドシートを作成</li>
-                    <li>「拡張機能」→「Apps Script」を開く</li>
-                    <li>下のスクリプトをコピペしてデプロイ</li>
-                    <li>生成されたURLをここに貼り付け</li>
-                </ol>
-                <div class="form-group" style="margin-top:16px">
-                    <label>Apps Script URL</label>
-                    <input type="text" id="gasUrl" placeholder="https://script.google.com/macros/s/xxxxx/exec" onchange="saveGasUrl()">
-                </div>
-                <button class="btn btn-secondary btn-sm" onclick="testConnection()">接続テスト</button>
-                <button class="btn btn-secondary btn-sm" onclick="showGasScript()">スクリプトを表示</button>
+            <div class="section" style="background:#1e293b;border:2px solid #22c55e;padding:20px;border-radius:12px;margin-bottom:16px">
+                <h3 style="color:#22c55e">🔥 Firebase リアルタイム同期</h3>
+                <p style="font-size:13px;color:#94a3b8;margin-top:8px">データは自動的にクラウドに保存され、チームメンバー全員とリアルタイムで共有されます。</p>
+                <p style="font-size:12px;color:#64748b;margin-top:8px">設定不要 - 自動で同期されます</p>
             </div>
 
             <div class="section" style="background:#1e293b;border:2px solid #3b82f6;padding:20px;border-radius:12px">
@@ -1465,19 +1454,6 @@
         </div>
     </div>
 
-    <!-- GASスクリプト表示モーダル -->
-    <div class="modal-overlay" id="gasModal">
-        <div class="modal" style="max-width:700px">
-            <h3>Google Apps Script コード</h3>
-            <p style="margin-bottom:12px;color:#94a3b8;font-size:13px">このコードをApps Scriptにコピペしてください：</p>
-            <textarea id="gasCode" rows="20" style="width:100%;font-family:monospace;font-size:11px" readonly></textarea>
-            <div class="modal-actions">
-                <button class="btn btn-secondary" onclick="copyGasCode()">コピー</button>
-                <button class="btn btn-primary" onclick="closeModal('gasModal')">閉じる</button>
-            </div>
-        </div>
-    </div>
-
     <script>
         // データ構造
         let data = {
@@ -1486,7 +1462,6 @@
             settings: {
                 budget: { post: 56, apoGet: 50, apoExec: 46, doinGet: 7, doinExec: 4, mendan: 2, seiyaku: 1 },
                 monthly: { post: 56, apoGet: 50, apoExec: 46, doinGet: 7, doinExec: 4, mendan: 2, seiyaku: 1 },
-                gasUrl: '',
                 currentUserId: null // 現在のユーザー（メンバーID）
             },
             weeks: {},

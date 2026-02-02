@@ -1284,20 +1284,14 @@
         <!-- 設定タブ -->
         <div id="tab-settings" class="tab-content">
             <div class="setup-guide" id="setupGuide">
-                <h3>🔗 Googleスプレッドシート連携（チーム共有）</h3>
-                <p style="margin-bottom:12px">チームでリアルタイムにデータを共有するには、以下の設定が必要です：</p>
-                <ol>
-                    <li>新しいGoogleスプレッドシートを作成</li>
-                    <li>「拡張機能」→「Apps Script」を開く</li>
-                    <li>下のスクリプトをコピペしてデプロイ</li>
-                    <li>生成されたURLをここに貼り付け</li>
-                </ol>
-                <div class="form-group" style="margin-top:16px">
-                    <label>Apps Script URL</label>
-                    <input type="text" id="gasUrl" placeholder="https://script.google.com/macros/s/xxxxx/exec" onchange="saveGasUrl()">
+                <h3>🔥 Firebase クラウド同期</h3>
+                <p style="margin-bottom:12px">データは自動的にFirebaseに保存・同期されます。</p>
+                <div id="firebaseStatus" style="padding:12px;background:#1e3a2f;border-radius:8px;margin-top:12px">
+                    <div style="display:flex;align-items:center;gap:8px">
+                        <span style="color:#22c55e">●</span>
+                        <span>Firebase接続中...</span>
+                    </div>
                 </div>
-                <button class="btn btn-secondary btn-sm" onclick="testConnection()">接続テスト</button>
-                <button class="btn btn-secondary btn-sm" onclick="showGasScript()">スクリプトを表示</button>
             </div>
 
             <div class="section" style="background:#1e293b;border:2px solid #3b82f6;padding:20px;border-radius:12px">
@@ -1465,18 +1459,6 @@
         </div>
     </div>
 
-    <!-- GASスクリプト表示モーダル -->
-    <div class="modal-overlay" id="gasModal">
-        <div class="modal" style="max-width:700px">
-            <h3>Google Apps Script コード</h3>
-            <p style="margin-bottom:12px;color:#94a3b8;font-size:13px">このコードをApps Scriptにコピペしてください：</p>
-            <textarea id="gasCode" rows="20" style="width:100%;font-family:monospace;font-size:11px" readonly></textarea>
-            <div class="modal-actions">
-                <button class="btn btn-secondary" onclick="copyGasCode()">コピー</button>
-                <button class="btn btn-primary" onclick="closeModal('gasModal')">閉じる</button>
-            </div>
-        </div>
-    </div>
 
     <script>
         // データ構造
@@ -1486,7 +1468,6 @@
             settings: {
                 budget: { post: 56, apoGet: 50, apoExec: 46, doinGet: 7, doinExec: 4, mendan: 2, seiyaku: 1 },
                 monthly: { post: 56, apoGet: 50, apoExec: 46, doinGet: 7, doinExec: 4, mendan: 2, seiyaku: 1 },
-                gasUrl: '',
                 currentUserId: null // 現在のユーザー（メンバーID）
             },
             weeks: {},
@@ -4252,8 +4233,6 @@
                 loadMemberSettings(selectedMember);
             }
 
-            document.getElementById('gasUrl').value = data.settings.gasUrl || '';
-
             // インスタ設定はloadMemberSettingsでメンバーごとに読み込み済み
 
             // 現在のユーザー選択ドロップダウンを更新
@@ -4651,12 +4630,6 @@
             alert(msg);
         }
 
-        function saveGasUrl() {
-            data.settings.gasUrl = document.getElementById('gasUrl').value.trim();
-            saveData();
-            updateSyncStatus();
-        }
-
         function saveCurrentUser() {
             const selectedUserId = document.getElementById('currentUserSelect').value;
             data.settings.currentUserId = selectedUserId || null;
@@ -4731,7 +4704,6 @@
         function saveToFirebase() {
             if (!firebaseInitialized) return;
             const saveData = JSON.parse(JSON.stringify(data));
-            delete saveData.settings.gasUrl;
             database.ref('teams/' + TEAM_ID).set(saveData)
                 .then(() => {
                     console.log('🔥 Firebase保存完了');
@@ -4785,492 +4757,9 @@
             alert('✅ 同期完了！');
         }
 
-        async function syncToCloud_OLD() {
-            if (!data.settings.gasUrl) return;
-
-            const currentUserId = data.settings.currentUserId;
-            if (!currentUserId) {
-                console.warn('⚠️ 現在のユーザーが未設定');
-                return;
-            }
-
-            const dot = document.getElementById('syncDot');
-            dot.className = 'sync-dot syncing';
-
-            try {
-                // 1. クラウドから最新データを取得
-                let cloudData = {};
-                try {
-                    const getResponse = await fetch(data.settings.gasUrl + '?action=load', { method: 'GET' });
-                    if (getResponse.ok) {
-                        const text = await getResponse.text();
-                        if (text && text !== '{}' && text !== '') {
-                            cloudData = JSON.parse(text);
-                        }
-                    }
-                } catch (e) {
-                    console.log('クラウドデータ取得失敗（新規作成）');
-                }
-
-                // 2. マージ: クラウドをベースに、自分のデータだけローカルから上書き
-                // 🔒 他のメンバーのデータを保護するため、クラウドをベースにする
-                const mergedData = (cloudData && Object.keys(cloudData).length > 0) ?
-                    JSON.parse(JSON.stringify(cloudData)) : {};
-
-                // 基本構造を初期化
-                if (!mergedData.weeks) mergedData.weeks = {};
-                if (!mergedData.members) mergedData.members = [];
-                if (!mergedData.accounts) mergedData.accounts = [];
-                if (!mergedData.settings) mergedData.settings = {};
-
-                // 削除リストをクラウドとローカルでマージ（全員で共有）
-                const cloudDeletedMembers = cloudData.deletedMembers || [];
-                const localDeletedMembers = data.deletedMembers || [];
-                const allDeletedMembers = [...new Set([...cloudDeletedMembers, ...localDeletedMembers])];
-                mergedData.deletedMembers = allDeletedMembers;
-                const deletedSet = new Set(allDeletedMembers);
-
-                // メンバーリストをマージ（削除されたメンバーを除外し、新規メンバーを追加）
-                // まず削除されたメンバーをクラウドデータから除外
-                mergedData.members = mergedData.members.filter(m => !deletedSet.has(m.id));
-                // ローカルの新規メンバーを追加（削除済みは除く）
-                const cloudMemberIds = new Set(mergedData.members.map(m => m.id));
-                data.members.forEach(m => {
-                    if (!cloudMemberIds.has(m.id) && !deletedSet.has(m.id)) {
-                        mergedData.members.push(m);
-                    }
-                });
-
-                // ローカルのdeletedMembersも更新
-                data.deletedMembers = allDeletedMembers;
-
-                // アカウントリストをマージ
-                const cloudAccountIds = new Set(mergedData.accounts.map(a => a.id));
-                data.accounts.forEach(a => {
-                    if (!cloudAccountIds.has(a.id)) {
-                        mergedData.accounts.push(a);
-                    }
-                });
-
-                // 設定をマージ（memberSettingsはローカル優先）
-                const cloudMemberSettings = mergedData.settings.memberSettings ?
-                    JSON.parse(JSON.stringify(mergedData.settings.memberSettings)) : {};
-                const localMemberSettings = data.settings.memberSettings ?
-                    JSON.parse(JSON.stringify(data.settings.memberSettings)) : {};
-
-                // 基本設定はローカルから（gasUrl, instagram設定など）
-                mergedData.settings = { ...data.settings };
-
-                // memberSettingsをマージ：ローカル優先（リーダーが全員の設定を管理できるように）
-                mergedData.settings.memberSettings = {};
-
-                // まずクラウドの設定をコピー
-                for (const memberId in cloudMemberSettings) {
-                    mergedData.settings.memberSettings[memberId] = cloudMemberSettings[memberId];
-                }
-
-                // ローカルの設定で上書き（実際に値が入っている場合のみ）
-                for (const memberId in localMemberSettings) {
-                    const localSetting = localMemberSettings[memberId];
-                    if (!localSetting) continue;
-
-                    if (!mergedData.settings.memberSettings[memberId]) {
-                        mergedData.settings.memberSettings[memberId] = {};
-                    }
-
-                    // 月ごとの設定をマージ
-                    for (const monthKey in localSetting) {
-                        const monthData = localSetting[monthKey];
-                        if (!monthData) continue;
-
-                        // budget または monthly に実際の値があるかチェック
-                        const hasBudget = monthData.budget && Object.keys(monthData.budget).length > 0 &&
-                            Object.values(monthData.budget).some(v => v > 0);
-                        const hasMonthly = monthData.monthly && Object.keys(monthData.monthly).length > 0 &&
-                            Object.values(monthData.monthly).some(v => v > 0);
-
-                        if (hasBudget || hasMonthly) {
-                            mergedData.settings.memberSettings[memberId][monthKey] = monthData;
-                        }
-                    }
-                }
-
-                // 動画データはローカルから（全体共有）
-                mergedData.monthVideos = data.monthVideos || mergedData.monthVideos || {};
-
-                // 週データ: 自分のデータだけローカルから上書き
-                for (const weekKey in data.weeks) {
-                    if (!mergedData.weeks[weekKey]) {
-                        // クラウドにない週はローカルから（ただし自分のデータのみ）
-                        mergedData.weeks[weekKey] = {
-                            daily: {},
-                            nippo: {},
-                            review: data.weeks[weekKey].review || {},
-                            instagram: data.weeks[weekKey].instagram || {}
-                        };
-                    }
-
-                    // 自分のdailyデータだけローカルから上書き
-                    if (data.weeks[weekKey].daily && data.weeks[weekKey].daily[currentUserId]) {
-                        if (!mergedData.weeks[weekKey].daily) mergedData.weeks[weekKey].daily = {};
-                        mergedData.weeks[weekKey].daily[currentUserId] = data.weeks[weekKey].daily[currentUserId];
-                    }
-
-                    // 自分のnippoデータだけローカルから上書き（キーは memberId_dayIndex 形式）
-                    if (data.weeks[weekKey].nippo) {
-                        if (!mergedData.weeks[weekKey].nippo) mergedData.weeks[weekKey].nippo = {};
-                        for (const nippoKey in data.weeks[weekKey].nippo) {
-                            // キーがcurrentUserIdで始まる場合のみ上書き
-                            if (nippoKey.startsWith(currentUserId + '_')) {
-                                mergedData.weeks[weekKey].nippo[nippoKey] = data.weeks[weekKey].nippo[nippoKey];
-                            }
-                        }
-                    }
-
-                    // review: メンバー別データ（cases, cancels, doinMuchakuList）はマージ
-                    if (data.weeks[weekKey].review) {
-                        if (!mergedData.weeks[weekKey].review) {
-                            mergedData.weeks[weekKey].review = {};
-                        }
-                        const localReview = data.weeks[weekKey].review;
-                        const cloudReview = mergedData.weeks[weekKey].review;
-
-                        // 基本フィールドはローカルから（全体共有）
-                        mergedData.weeks[weekKey].review = {
-                            ...cloudReview,
-                            mainIssue: localReview.mainIssue || cloudReview.mainIssue || '',
-                            mainCause: localReview.mainCause || cloudReview.mainCause || '',
-                            causeActions: localReview.causeActions || cloudReview.causeActions || [],
-                            muchakuReasons: localReview.muchakuReasons || cloudReview.muchakuReasons || {},
-                            muchakuOther: localReview.muchakuOther || cloudReview.muchakuOther || '',
-                            ngReasons: localReview.ngReasons || cloudReview.ngReasons || {},
-                            topReasonAction: localReview.topReasonAction || cloudReview.topReasonAction || ''
-                        };
-
-                        // cases: 他ユーザーのデータを保持 + 自分のデータをローカルから
-                        const cloudCases = (cloudReview.cases || []).filter(c => c.memberId && c.memberId !== currentUserId);
-                        const localCases = (localReview.cases || []).filter(c => !c.memberId || c.memberId === currentUserId);
-                        mergedData.weeks[weekKey].review.cases = [...cloudCases, ...localCases];
-
-                        // cancels: 他ユーザーのデータを保持 + 自分のデータをローカルから
-                        const cloudCancels = (cloudReview.cancels || []).filter(c => c.memberId && c.memberId !== currentUserId);
-                        const localCancels = (localReview.cancels || []).filter(c => !c.memberId || c.memberId === currentUserId);
-                        mergedData.weeks[weekKey].review.cancels = [...cloudCancels, ...localCancels];
-
-                        // doinMuchakuList: 他ユーザーのデータを保持 + 自分のデータをローカルから
-                        const cloudDoinMuchaku = (cloudReview.doinMuchakuList || []).filter(item => item.memberId && item.memberId !== currentUserId);
-                        const localDoinMuchaku = (localReview.doinMuchakuList || []).filter(item => !item.memberId || item.memberId === currentUserId);
-                        mergedData.weeks[weekKey].review.doinMuchakuList = [...cloudDoinMuchaku, ...localDoinMuchaku];
-                    }
-                    if (data.weeks[weekKey].instagram) {
-                        mergedData.weeks[weekKey].instagram = data.weeks[weekKey].instagram;
-                    }
-                }
-
-                mergedData.lastUpdated = new Date().toISOString();
-                console.log('📤 同期: 自分(' + currentUserId + ')のデータのみ送信、他メンバーはクラウドを保護');
-
-                // 3. マージしたデータを送信
-                const response = await fetch(data.settings.gasUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'text/plain' },
-                    body: JSON.stringify(mergedData)
-                });
-
-                if (response.ok) {
-                    dot.className = 'sync-dot';
-                    const memberName = data.members.find(m => m.id === currentUserId)?.name || '';
-                    console.log(`✅ ${memberName}さんのデータをクラウドに保存しました`);
-                } else {
-                    dot.className = 'sync-dot offline';
-                    console.error('❌ 保存失敗:', response.status);
-                }
-            } catch (e) {
-                console.error('❌ 同期エラー:', e);
-                dot.className = 'sync-dot offline';
-            }
-        }
-
         async function loadFromCloud() {
             console.log('🔥 Firebaseリアルタイム同期中...');
             return true;
-        }
-
-        async function loadFromCloud_OLD() {
-            const url = data.settings.gasUrl;
-            if (!url || url.trim() === '') {
-                console.log('クラウド同期URLが未設定');
-                return false;
-            }
-
-            const currentUserId = data.settings.currentUserId;
-            if (!currentUserId) {
-                alert('⚠️ ユーザー未設定');
-                return false;
-            }
-
-            console.log('クラウドからデータを読み込み中...');
-
-            try {
-                const response = await fetch(url + '?action=load', {
-                    method: 'GET'
-                });
-
-                console.log('レスポンス状態:', response.status);
-
-                if (!response.ok) {
-                    console.error('読み込み失敗:', response.status);
-                    return false;
-                }
-
-                const text = await response.text();
-                console.log('受信データ長:', text.length);
-
-                if (text && text !== '{}' && text !== '') {
-                    const cloudData = JSON.parse(text);
-                    if (cloudData && Object.keys(cloudData).length > 0) {
-                        // 🔒 マージ処理: ローカルデータを保護しつつクラウドと同期
-
-                        // 削除リストをマージ（ローカルとクラウドの両方の削除リストを統合）
-                        const cloudDeletedMembers = cloudData.deletedMembers || [];
-                        const localDeletedMembers = data.deletedMembers || [];
-                        const allDeletedMembers = [...new Set([...cloudDeletedMembers, ...localDeletedMembers])];
-                        data.deletedMembers = allDeletedMembers;
-                        const deletedSet = new Set(allDeletedMembers);
-
-                        // メンバーリストをマージ（削除されたメンバーを除外）
-                        if (cloudData.members) {
-                            const cloudMemberIds = new Set(cloudData.members.map(m => m.id));
-                            const localOnlyMembers = data.members.filter(m => !cloudMemberIds.has(m.id) && !deletedSet.has(m.id));
-                            const filteredCloudMembers = cloudData.members.filter(m => !deletedSet.has(m.id));
-                            data.members = [...filteredCloudMembers, ...localOnlyMembers];
-                            console.log('📊 メンバーマージ: クラウド', filteredCloudMembers.length, '+ ローカル専用', localOnlyMembers.length, '(削除済み除外)');
-                        }
-
-                        // アカウントリストをマージ
-                        if (cloudData.accounts) {
-                            const cloudAccountIds = new Set(cloudData.accounts.map(a => a.id));
-                            const localOnlyAccounts = data.accounts.filter(a => !cloudAccountIds.has(a.id));
-                            data.accounts = [...cloudData.accounts, ...localOnlyAccounts];
-                        }
-
-                        if (cloudData.monthVideos) data.monthVideos = cloudData.monthVideos;
-
-                        // 設定をマージ（ローカルの設定を保護しつつクラウドと同期）
-                        if (cloudData.settings) {
-                            const myUserId = data.settings.currentUserId;
-                            const myGasUrl = data.settings.gasUrl;
-                            const localMemberSettings = data.settings.memberSettings ?
-                                JSON.parse(JSON.stringify(data.settings.memberSettings)) : {};
-                            const cloudMemberSettings = cloudData.settings.memberSettings ?
-                                JSON.parse(JSON.stringify(cloudData.settings.memberSettings)) : {};
-
-                            // クラウドの設定を適用
-                            data.settings = cloudData.settings;
-                            data.settings.currentUserId = myUserId;
-                            data.settings.gasUrl = myGasUrl;
-
-                            // memberSettingsをマージ（クラウドをベースに、ローカルの設定は保持）
-                            data.settings.memberSettings = {};
-
-                            // クラウドの設定をベースにコピー
-                            for (const memberId in cloudMemberSettings) {
-                                data.settings.memberSettings[memberId] = cloudMemberSettings[memberId];
-                            }
-
-                            // ローカルの設定で上書き（ローカルに実際の値がある場合）
-                            for (const memberId in localMemberSettings) {
-                                const localSetting = localMemberSettings[memberId];
-                                if (!localSetting) continue;
-
-                                if (!data.settings.memberSettings[memberId]) {
-                                    data.settings.memberSettings[memberId] = {};
-                                }
-
-                                // 月ごとの設定をマージ
-                                for (const monthKey in localSetting) {
-                                    const monthData = localSetting[monthKey];
-                                    if (!monthData) continue;
-
-                                    // budget または monthly に実際の値があるかチェック
-                                    const hasBudget = monthData.budget && Object.keys(monthData.budget).length > 0 &&
-                                        Object.values(monthData.budget).some(v => v > 0);
-                                    const hasMonthly = monthData.monthly && Object.keys(monthData.monthly).length > 0 &&
-                                        Object.values(monthData.monthly).some(v => v > 0);
-
-                                    // ローカルに実際の設定があれば、クラウドを上書き
-                                    if (hasBudget || hasMonthly) {
-                                        data.settings.memberSettings[memberId][monthKey] = monthData;
-                                    }
-                                }
-                            }
-                        }
-
-                        // 週データをマージ: 自分のデータは保護
-                        if (cloudData.weeks) {
-                            if (!data.weeks) data.weeks = {};
-
-                            // まずクラウドの週データを処理
-                            for (const weekKey in cloudData.weeks) {
-                                if (!data.weeks[weekKey]) {
-                                    // ローカルに無い週データは丸ごとコピー
-                                    data.weeks[weekKey] = cloudData.weeks[weekKey];
-                                } else {
-                                    const cloudWeek = cloudData.weeks[weekKey];
-                                    const localWeek = data.weeks[weekKey];
-
-                                    // daily データ: 自分のデータは保持、他はクラウドから更新
-                                    if (cloudWeek.daily) {
-                                        if (!localWeek.daily) localWeek.daily = {};
-                                        // 自分のローカルデータを保存
-                                        const myLocalDaily = localWeek.daily[currentUserId];
-                                        // クラウドのデータをマージ
-                                        for (const memberId in cloudWeek.daily) {
-                                            if (memberId !== currentUserId) {
-                                                localWeek.daily[memberId] = cloudWeek.daily[memberId];
-                                            }
-                                        }
-                                        // 自分のデータを復元（あれば）
-                                        if (myLocalDaily) {
-                                            localWeek.daily[currentUserId] = myLocalDaily;
-                                        }
-                                    }
-
-                                    // nippo データ: キーは memberId_dayIndex 形式
-                                    if (cloudWeek.nippo) {
-                                        if (!localWeek.nippo) localWeek.nippo = {};
-                                        // 自分のローカルnippoデータを保存
-                                        const myLocalNippoData = {};
-                                        for (const nippoKey in localWeek.nippo) {
-                                            if (nippoKey.startsWith(currentUserId + '_')) {
-                                                myLocalNippoData[nippoKey] = localWeek.nippo[nippoKey];
-                                            }
-                                        }
-                                        // クラウドのnippoデータを取り込む（自分以外）
-                                        for (const nippoKey in cloudWeek.nippo) {
-                                            if (!nippoKey.startsWith(currentUserId + '_')) {
-                                                localWeek.nippo[nippoKey] = cloudWeek.nippo[nippoKey];
-                                            }
-                                        }
-                                        // 自分のデータを復元
-                                        for (const nippoKey in myLocalNippoData) {
-                                            localWeek.nippo[nippoKey] = myLocalNippoData[nippoKey];
-                                        }
-                                    }
-
-                                    // review: メンバー別データ（cases, cancels, doinMuchakuList）はマージ
-                                    if (cloudWeek.review) {
-                                        const cloudReview = cloudWeek.review;
-                                        const localReview = localWeek.review || {};
-
-                                        // 基本フィールドはクラウドから
-                                        localWeek.review = {
-                                            ...cloudReview
-                                        };
-
-                                        // cases: クラウドの他ユーザー + ローカルの自分のデータ
-                                        const cloudCases = (cloudReview.cases || []).filter(c => c.memberId && c.memberId !== currentUserId);
-                                        const localCases = (localReview.cases || []).filter(c => !c.memberId || c.memberId === currentUserId);
-                                        localWeek.review.cases = [...cloudCases, ...localCases];
-
-                                        // cancels: クラウドの他ユーザー + ローカルの自分のデータ
-                                        const cloudCancels = (cloudReview.cancels || []).filter(c => c.memberId && c.memberId !== currentUserId);
-                                        const localCancels = (localReview.cancels || []).filter(c => !c.memberId || c.memberId === currentUserId);
-                                        localWeek.review.cancels = [...cloudCancels, ...localCancels];
-
-                                        // doinMuchakuList: クラウドの他ユーザー + ローカルの自分のデータ
-                                        const cloudDoinMuchaku = (cloudReview.doinMuchakuList || []).filter(item => item.memberId && item.memberId !== currentUserId);
-                                        const localDoinMuchaku = (localReview.doinMuchakuList || []).filter(item => !item.memberId || item.memberId === currentUserId);
-                                        localWeek.review.doinMuchakuList = [...cloudDoinMuchaku, ...localDoinMuchaku];
-                                    }
-                                    if (cloudWeek.instagram) localWeek.instagram = cloudWeek.instagram;
-                                }
-                            }
-
-                            // ローカルにしかない週データも保持（クラウドに無い週）
-                            // （既にdata.weeksに入っているので何もしなくてOK）
-                        }
-
-                        saveData();
-                        const memberName = data.members.find(m => m.id === currentUserId)?.name || '';
-                        console.log(`✅ クラウドからデータを読み込みました（${memberName}さんのデータは保護）`);
-                        console.log('📊 メンバー数:', data.members?.length || 0);
-                        console.log('📊 週データ数:', Object.keys(data.weeks || {}).length);
-                        return true;
-                    }
-                }
-                console.log('クラウドにデータなし（新規状態）');
-            } catch (e) {
-                console.log('クラウド接続なし（ローカルデータを使用）:', e);
-            }
-            return false;
-        }
-
-        async function testConnection() {
-            const url = document.getElementById('gasUrl').value.trim();
-            if (!url) { alert('URLを入力してください'); return; }
-            try {
-                const res = await fetch(url + '?action=test');
-                const text = await res.text();
-                const result = JSON.parse(text);
-                if (result.status === 'ok') {
-                    alert('✅ 接続成功！\n\nGoogle Apps Scriptと正常に通信できています。');
-                } else {
-                    alert('⚠️ レスポンスが不正です\n\n' + text);
-                }
-            } catch (e) {
-                alert('❌ 接続失敗\n\nエラー: ' + e.message + '\n\nURLを確認してください。');
-            }
-        }
-
-        function showGasScript() {
-            document.getElementById('gasCode').value = `// Google Apps Script
-// このコードをApps Scriptにコピペしてデプロイしてください
-
-const SHEET_NAME = 'SalesData';
-
-function doGet(e) {
-  const action = e.parameter.action;
-  if (action === 'test') {
-    return ContentService.createTextOutput(JSON.stringify({status: 'ok'})).setMimeType(ContentService.MimeType.JSON);
-  }
-  if (action === 'load') {
-    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
-    if (!sheet) return ContentService.createTextOutput('{}').setMimeType(ContentService.MimeType.JSON);
-    const data = sheet.getRange('A1').getValue();
-    return ContentService.createTextOutput(data || '{}').setMimeType(ContentService.MimeType.JSON);
-  }
-  return ContentService.createTextOutput('{}').setMimeType(ContentService.MimeType.JSON);
-}
-
-function doPost(e) {
-  try {
-    const data = e.postData.contents;
-    let sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
-    if (!sheet) {
-      sheet = SpreadsheetApp.getActiveSpreadsheet().insertSheet(SHEET_NAME);
-    }
-    sheet.getRange('A1').setValue(data);
-    sheet.getRange('B1').setValue(new Date().toISOString());
-    return ContentService.createTextOutput(JSON.stringify({status: 'saved'})).setMimeType(ContentService.MimeType.JSON);
-  } catch (error) {
-    return ContentService.createTextOutput(JSON.stringify({error: error.message})).setMimeType(ContentService.MimeType.JSON);
-  }
-}
-
-// デプロイ手順:
-// 1. 「デプロイ」→「新しいデプロイ」
-// 2. 種類：「ウェブアプリ」を選択
-// 3. 実行ユーザー：「自分」
-// 4. アクセス権：「全員」
-// 5. デプロイしてURLをコピー`;
-            openModal('gasModal');
-        }
-
-        function copyGasCode() {
-            document.getElementById('gasCode').select();
-            document.execCommand('copy');
-            alert('コピーしました！');
         }
 
         function exportData() {
@@ -5368,8 +4857,8 @@ function doPost(e) {
 
 これを実行すると：
 ✅ あなたのブラウザのデータだけがクリアされます
-✅ クラウド上の他メンバーのデータには影響しません
-✅ リセット後、正しいGAS URLを設定してください
+✅ Firebaseのデータには影響しません
+✅ リセット後、Firebaseから最新データを取得します
 
 続行しますか？`;
             if (!confirm(msg)) return;
@@ -5377,7 +4866,7 @@ function doPost(e) {
             // ローカルストレージをクリア
             localStorage.removeItem('salesPro_core');
 
-            alert('ローカルデータをリセットしました。\n\nページをリロード後、正しいApps Script URLを設定してください。');
+            alert('ローカルデータをリセットしました。\n\nページをリロードします。');
             location.reload();
         }
 
