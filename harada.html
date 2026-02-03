@@ -4935,9 +4935,6 @@
             database.ref('teams/' + TEAM_ID).on('value', (snapshot) => {
                 const firebaseData = snapshot.val();
                 if (firebaseData) {
-                    // ローカルの個人設定を保持
-                    const localSettings = data.settings ? { ...data.settings } : {};
-
                     // Firebaseのデータをマージ
                     data = { ...data, ...firebaseData };
 
@@ -4950,8 +4947,10 @@
                         data.members = [];
                     }
 
-                    // 個人設定を復元
-                    data.settings = { ...firebaseData.settings, ...localSettings };
+                    // Firebaseの設定を優先（他のメンバーが入力したデータを正しく反映）
+                    if (firebaseData.settings) {
+                        data.settings = firebaseData.settings;
+                    }
 
                     localStorage.setItem('salesPro_harada', JSON.stringify(data));
                     renderAll();
