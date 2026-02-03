@@ -1474,9 +1474,15 @@
             lastUpdated: null // タイムスタンプ（データ更新検知用）
         };
 
-        let currentYear = 2026;
-        let currentMonth = 1;
-        let currentWeekNum = 4;
+        // 現在の日付から週番号を計算（5週制）
+        function calculateCurrentWeek(date) {
+            const day = date.getDate();
+            return Math.min(Math.ceil(day / 7), 5);
+        }
+        const now = new Date();
+        let currentYear = now.getFullYear();
+        let currentMonth = now.getMonth() + 1;
+        let currentWeekNum = calculateCurrentWeek(now);
         let selectedMember = 'all';
         let selectedIgAccount = 'all'; // インスタ分析用の選択アカウント
         let syncStatus = 'local';
