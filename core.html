@@ -2914,7 +2914,6 @@
 
             data.weeks[weekKey].daily[memberId][metricKey][dayOfWeek] = parseInt(value) || 0;
             saveData();
-            syncToCloud();
             renderSummary();
             renderMemberTable();
         }
@@ -2922,7 +2921,6 @@
         function updateDaily(memberId, key, idx, val) {
             getMemberDaily(memberId)[key][idx] = parseInt(val) || 0;
             saveData();
-            syncToCloud();
             renderSummary();
             renderMemberTable();
             const total = getMemberDaily(memberId)[key].reduce((a,b) => a+b, 0);
@@ -2954,18 +2952,16 @@
             r.mainCause = document.getElementById('mainCause').value;
             // r.muchakuOther = document.getElementById('muchakuOther').value; // UI削除済み
             saveData();
-            syncToCloud();
         }
 
         function saveTopReasonAction() {
             const r = getMemberReview();
             r.topReasonAction = document.getElementById('rsTopReasonAction').value;
             saveData();
-            syncToCloud();
         }
 
-        function updateMuchakuReason(i, v) { getWeekData().review.muchakuReasons[i] = parseInt(v)||0; saveData(); syncToCloud(); }
-        function updateNgReason(i, v) { getWeekData().review.ngReasons[i] = parseInt(v)||0; saveData(); syncToCloud(); }
+        function updateMuchakuReason(i, v) { getWeekData().review.muchakuReasons[i] = parseInt(v)||0; saveData(); }
+        function updateNgReason(i, v) { getWeekData().review.ngReasons[i] = parseInt(v)||0; saveData(); }
 
         // 日別無着地理由の管理
         let currentMuchakuMember = null;
@@ -3029,7 +3025,6 @@
             reasons[currentMuchakuDay] = { counts, otherNote };
 
             saveData();
-            syncToCloud();
             closeModal('muchakuModal');
             renderDailyInput();
 
@@ -3124,7 +3119,6 @@
             reasons[currentNgDay] = { counts, otherNote };
 
             saveData();
-            syncToCloud();
             closeModal('ngModal');
             renderDailyInput();
 
@@ -3178,10 +3172,10 @@
             const currentUserId = data.settings.currentUserId;
             if (!currentUserId) { alert('ユーザーを設定してください'); return; }
             getWeekData().review.cases.push({ memberId: currentUserId });
-            saveData(); renderCases(); syncToCloud();
+            saveData(); renderCases();
         }
-        function updateCase(i,k,v) { getWeekData().review.cases[i][k] = v; saveData(); syncToCloud(); }
-        function deleteCase(i) { getWeekData().review.cases.splice(i,1); saveData(); renderCases(); syncToCloud(); }
+        function updateCase(i,k,v) { getWeekData().review.cases[i][k] = v; saveData(); }
+        function deleteCase(i) { getWeekData().review.cases.splice(i,1); saveData(); renderCases(); }
 
         // キャンセル
         function renderCancels() {
@@ -3213,10 +3207,10 @@
             const currentUserId = data.settings.currentUserId;
             if (!currentUserId) { alert('ユーザーを設定してください'); return; }
             getWeekData().review.cancels.push({ memberId: currentUserId });
-            saveData(); renderCancels(); syncToCloud();
+            saveData(); renderCancels();
         }
-        function updateCancel(i,k,v) { getWeekData().review.cancels[i][k] = v; saveData(); syncToCloud(); renderCancels(); }
-        function deleteCancel(i) { getWeekData().review.cancels.splice(i,1); saveData(); renderCancels(); syncToCloud(); }
+        function updateCancel(i,k,v) { getWeekData().review.cancels[i][k] = v; saveData(); renderCancels(); }
+        function deleteCancel(i) { getWeekData().review.cancels.splice(i,1); saveData(); renderCancels(); }
 
         // 動員後無着地
         function renderDoinMuchaku() {
@@ -3254,14 +3248,12 @@
             r.doinMuchakuList.push({ memberId: currentUserId });
             saveData();
             renderDoinMuchaku();
-            syncToCloud();
         }
         function updateDoinMuchaku(i, k, v) {
             const r = getWeekData().review;
             if (!r.doinMuchakuList) r.doinMuchakuList = [];
             r.doinMuchakuList[i][k] = v;
             saveData();
-            syncToCloud();
             renderDoinMuchaku();
             renderSummary();
         }
@@ -3270,7 +3262,6 @@
             r.doinMuchakuList.splice(i, 1);
             saveData();
             renderDoinMuchaku();
-            syncToCloud();
             renderSummary();
         }
 
@@ -3308,7 +3299,7 @@
             const r = getMemberReview();
             if (!r.causeActions[i]) r.causeActions[i] = { cause: '', actions: [] };
             r.causeActions[i].cause = v;
-            saveData(); syncToCloud();
+            saveData();
         }
 
         function addCauseAction(causeIdx) {
@@ -3320,13 +3311,13 @@
 
         function updateCauseAction(causeIdx, actionIdx, key, value) {
             getMemberReview().causeActions[causeIdx].actions[actionIdx][key] = value;
-            saveData(); syncToCloud();
+            saveData();
         }
 
         function toggleCauseAction(causeIdx, actionIdx) {
             const a = getMemberReview().causeActions[causeIdx].actions[actionIdx];
             a.done = !a.done;
-            saveData(); renderCauseActions(); syncToCloud();
+            saveData(); renderCauseActions();
         }
 
         // Instagram
@@ -3656,7 +3647,6 @@
 
             getAccountData(accId)[key][idx] = parseInt(val) || 0;
             saveData();
-            syncToCloud();
             renderInstagram();
 
             // 開いていたアカウントを復元
@@ -3840,7 +3830,6 @@
             const nippoData = getNippoData(memberId, dayIndex);
             nippoData[field] = value;
             saveData();
-            syncToCloud();
         }
 
         function openVideoUploadModal() {
@@ -3880,7 +3869,6 @@
             }
 
             saveData();
-            syncToCloud();
             closeModal('videoUploadModal');
             renderNippo();
         }
@@ -3974,7 +3962,6 @@
                     }
 
                     saveData();
-                    syncToCloud();
                     renderNippo();
                     alert(`${importCount}件の動画URLをインポートしました`);
 
@@ -4093,7 +4080,6 @@
                     }
 
                     saveData();
-                    syncToCloud();
                     renderNippo();
                     renderAll();
                     let msg = `${importCount}件の日報データをインポートしました`;
@@ -4305,7 +4291,6 @@
                     }
 
                     saveData();
-                    syncToCloud();
                     renderAll();
                     alert(`${memberNameFromFile || member.name}のデータを取り込みました（${importCount}件）`);
 
@@ -4387,7 +4372,6 @@
                     }
 
                     saveData();
-                    syncToCloud();
                     renderAll();
                     let msg = `${importCount}件のデータをインポートしました`;
                     if (newMemberCount > 0) {
@@ -4416,7 +4400,7 @@
             saveData(); closeModal('accountModal');
             document.getElementById('newAccountName').value = '';
             document.getElementById('newAccountUrl').value = '';
-            renderInstagram(); syncToCloud();
+            renderInstagram();
         }
 
         // 選択されたメンバーのアカウントを取得
@@ -4441,7 +4425,7 @@
             // 「全体」または特定メンバーが選択されていればOK
             return true;
         }
-        function deleteAccount(id) { if (!confirm('削除しますか？')) return; data.accounts = data.accounts.filter(a => a.id !== id); saveData(); renderInstagram(); syncToCloud(); }
+        function deleteAccount(id) { if (!confirm('削除しますか？')) return; data.accounts = data.accounts.filter(a => a.id !== id); saveData(); renderInstagram(); }
 
         // 設定
         let settingsSelectedMember = 'all';
@@ -4763,7 +4747,7 @@
             };
             console.log('メンバー個別設定として保存しました:', targetMember, '月:', monthKey);
 
-            saveData(); renderSummary(); renderReview(); renderInstagram(); syncToCloud();
+            saveData(); renderSummary(); renderReview(); renderInstagram();
         }
 
         // メンバーの目標を取得（個人設定があれば個人、なければ0）
@@ -4916,9 +4900,6 @@
                 console.log('renderAll()を呼び出します');
                 renderAll();
 
-                console.log('同期開始');
-                syncToCloud();
-
                 console.log('✅ メンバー追加完了');
             } catch (e) {
                 console.error('❌ メンバー追加エラー:', e);
@@ -4936,11 +4917,12 @@
             }
             saveData();
             renderAll();
-            syncToCloud();
         }
 
         // データ
         let firebaseInitialized = false;
+        let saveTimer = null;
+        let isSaving = false;
 
         function saveData() {
             localStorage.setItem('salesPro_core', JSON.stringify(data));
@@ -4955,23 +4937,62 @@
             if (text) text.textContent = '💾 保存中...';
             if (dot) dot.className = 'sync-dot syncing';
 
-            const saveData = JSON.parse(JSON.stringify(data));
-            database.ref('teams/' + TEAM_ID).set(saveData)
-                .then(() => {
-                    console.log('🔥 Firebase保存完了');
-                    // 保存完了表示
+            if (saveTimer) clearTimeout(saveTimer);
+            saveTimer = setTimeout(() => {
+                doFirebaseSave();
+            }, 800);
+        }
+
+        function doFirebaseSave() {
+            if (!firebaseInitialized) return;
+            isSaving = true;
+            const localData = JSON.parse(JSON.stringify(data));
+
+            database.ref('teams/' + TEAM_ID).transaction(function(currentData) {
+                if (currentData === null) {
+                    return localData;
+                }
+                deepMerge(currentData, localData);
+                return currentData;
+            }, function(error, committed, snapshot) {
+                if (error) {
+                    console.error('Firebase保存エラー:', error);
+                    const text = document.getElementById('syncText');
+                    const dot = document.getElementById('syncDot');
+                    if (text) text.textContent = '❌ 保存エラー';
+                    if (dot) dot.className = 'sync-dot offline';
+                    isSaving = false;
+                } else if (committed) {
+                    const merged = snapshot.val();
+                    if (merged) {
+                        data = merged;
+                        // Fix arrays that Firebase may have converted to objects
+                        if (data.members && !Array.isArray(data.members)) {
+                            data.members = Object.values(data.members);
+                        }
+                        if (!data.members) data.members = [];
+                        if (data.accounts && !Array.isArray(data.accounts)) {
+                            data.accounts = Object.values(data.accounts);
+                        }
+                        if (!data.accounts) data.accounts = [];
+                        if (data.deletedMembers && !Array.isArray(data.deletedMembers)) {
+                            data.deletedMembers = Object.values(data.deletedMembers);
+                        }
+                        localStorage.setItem('salesPro_core', JSON.stringify(data));
+                    }
+                    isSaving = false;
+                    console.log('🔥 Firebase保存完了 (transaction)');
+                    const text = document.getElementById('syncText');
+                    const dot = document.getElementById('syncDot');
                     if (text) text.textContent = '✓ 保存完了';
                     if (dot) dot.className = 'sync-dot';
-                    // 2秒後に通常表示に戻す
                     setTimeout(() => {
                         updateSyncStatus();
                     }, 2000);
-                })
-                .catch(err => {
-                    console.error('Firebase保存エラー:', err);
-                    if (text) text.textContent = '❌ 保存エラー';
-                    if (dot) dot.className = 'sync-dot offline';
-                });
+                } else {
+                    isSaving = false;
+                }
+            });
         }
 
         function loadData() {
@@ -5003,11 +5024,47 @@
             }
         }
 
+        function deepMerge(target, source) {
+            for (const key of Object.keys(source)) {
+                const s = source[key];
+                const t = target[key];
+                if (s && typeof s === 'object' && !Array.isArray(s)
+                    && t && typeof t === 'object' && !Array.isArray(t)) {
+                    deepMerge(t, s);
+                } else if (Array.isArray(s) && Array.isArray(t)
+                    && s.length === t.length && s.length > 0
+                    && typeof s[0] === 'number') {
+                    for (let i = 0; i < s.length; i++) {
+                        if (s[i] !== 0) { t[i] = s[i]; }
+                    }
+                } else if ((key === 'members' || key === 'accounts')
+                    && Array.isArray(s) && Array.isArray(t)) {
+                    const merged = [...t];
+                    s.forEach(sItem => {
+                        if (!sItem || !sItem.id) return;
+                        const idx = merged.findIndex(m => m && m.id === sItem.id);
+                        if (idx >= 0) { merged[idx] = sItem; } else { merged.push(sItem); }
+                    });
+                    target[key] = merged;
+                } else {
+                    target[key] = s;
+                }
+            }
+        }
+
         function setupFirebaseListener() {
             database.ref('teams/' + TEAM_ID).on('value', (snapshot) => {
+                if (isSaving) return;
                 const firebaseData = snapshot.val();
                 if (firebaseData) {
-                    data = { ...data, ...firebaseData };
+                    // Save active input before re-render
+                    const activeEl = document.activeElement;
+                    const activeId = activeEl ? activeEl.id : null;
+                    const activeValue = activeEl ? activeEl.value : null;
+                    const selStart = activeEl && activeEl.selectionStart !== undefined ? activeEl.selectionStart : null;
+                    const selEnd = activeEl && activeEl.selectionEnd !== undefined ? activeEl.selectionEnd : null;
+
+                    deepMerge(data, firebaseData);
 
                     // membersが配列であることを確認（Firebaseがオブジェクトに変換する場合がある）
                     if (data.members && !Array.isArray(data.members)) {
@@ -5017,27 +5074,43 @@
                     if (!data.members) {
                         data.members = [];
                     }
-
-                    // Firebaseの設定を優先（他のメンバーが入力したデータを正しく反映）
-                    if (firebaseData.settings) {
-                        data.settings = firebaseData.settings;
+                    // accountsが配列であることを確認
+                    if (data.accounts && !Array.isArray(data.accounts)) {
+                        data.accounts = Object.values(data.accounts);
                     }
+                    if (!data.accounts) {
+                        data.accounts = [];
+                    }
+                    if (data.deletedMembers && !Array.isArray(data.deletedMembers)) {
+                        data.deletedMembers = Object.values(data.deletedMembers);
+                    }
+
                     localStorage.setItem('salesPro_core', JSON.stringify(data));
                     renderAll();
-                    console.log('🔥 Firebaseからリアルタイム更新, メンバー数:', data.members.length);
+
+                    // Restore active input after re-render
+                    if (activeId) {
+                        const restored = document.getElementById(activeId);
+                        if (restored) {
+                            restored.focus();
+                            if (activeValue !== null && activeValue !== undefined) {
+                                restored.value = activeValue;
+                            }
+                            if (selStart !== null) {
+                                try { restored.setSelectionRange(selStart, selEnd); } catch(e) {}
+                            }
+                        }
+                    }
+
+                    console.log('🔥 Firebaseからリアルタイム更新 v3.2, メンバー数:', data.members.length);
                 }
             });
             firebaseInitialized = true;
             updateSyncStatus();
-            console.log('🔥 Firebaseリスナー設定完了');
+            console.log('🔥 Firebaseリスナー設定完了 v3.2');
         }
 
         function saveAll() { saveReview(); saveData(); }
-
-        // クラウド同期（Firebase版）
-        async function syncToCloud() {
-            saveToFirebase();
-        }
 
         async function loadFromCloud() {
             console.log('🔥 Firebaseリアルタイム同期中...');
