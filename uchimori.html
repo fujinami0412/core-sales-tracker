@@ -1596,7 +1596,7 @@
         }
 
         // ページ状態をlocalStorageから復元
-        const savedState = JSON.parse(localStorage.getItem('personalTrackerState') || '{}');
+        const savedState = JSON.parse(localStorage.getItem('uchimoriTrackerState') || '{}');
         const now = new Date();
         let currentYear = savedState.year || now.getFullYear();
         let currentMonth = savedState.month || (now.getMonth() + 1);
@@ -1613,11 +1613,11 @@
         let currentMemberId = null;   // authから導出したmemberId
         let isAdmin = false;          // userMapのisAdminフラグ
         let adminEditMode = false;    // 管理者編集モードON/OFF
-        let userMap = {};             // teams/personal/userMap のキャッシュ
+        let userMap = {};             // teams/uchimori/userMap のキャッシュ
 
         // ページ状態を保存
         function savePageState() {
-            localStorage.setItem('personalTrackerState', JSON.stringify({
+            localStorage.setItem('uchimoriTrackerState', JSON.stringify({
                 year: currentYear,
                 month: currentMonth,
                 week: currentWeekNum,
