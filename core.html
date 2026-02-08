@@ -937,6 +937,7 @@
                     <div class="sub">目標: <span id="sPostGoal">0</span></div>
                     <div class="rate" id="sPostRate">0%</div>
                     <div class="progress-bar"><div class="fill" id="sPostBar"></div></div>
+                    <div class="sub" style="margin-top:4px;color:#f59e0b" id="sPostDaily"></div>
                 </div>
                 <div class="summary-card">
                     <h4>アポ獲得</h4>
@@ -944,6 +945,7 @@
                     <div class="sub">目標: <span id="sApoGetGoal">0</span></div>
                     <div class="rate" id="sApoGetRate">0%</div>
                     <div class="progress-bar"><div class="fill" id="sApoGetBar"></div></div>
+                    <div class="sub" style="margin-top:4px;color:#f59e0b" id="sApoGetDaily"></div>
                 </div>
                 <div class="summary-card">
                     <h4>アポ実施</h4>
@@ -951,6 +953,7 @@
                     <div class="sub">目標: <span id="sApoExecGoal">0</span></div>
                     <div class="rate" id="sApoExecRate">0%</div>
                     <div class="progress-bar"><div class="fill" id="sApoExecBar"></div></div>
+                    <div class="sub" style="margin-top:4px;color:#f59e0b" id="sApoExecDaily"></div>
                 </div>
                 <div class="summary-card">
                     <h4>動員直クロ獲得</h4>
@@ -958,6 +961,7 @@
                     <div class="sub">目標: <span id="sDoinGetGoal">0</span></div>
                     <div class="rate" id="sDoinGetRate">0%</div>
                     <div class="progress-bar"><div class="fill" id="sDoinGetBar"></div></div>
+                    <div class="sub" style="margin-top:4px;color:#f59e0b" id="sDoinGetDaily"></div>
                 </div>
                 <div class="summary-card">
                     <h4>動員直クロ実施</h4>
@@ -965,6 +969,7 @@
                     <div class="sub">目標: <span id="sDoinExecGoal">0</span></div>
                     <div class="rate" id="sDoinExecRate">0%</div>
                     <div class="progress-bar"><div class="fill" id="sDoinExecBar"></div></div>
+                    <div class="sub" style="margin-top:4px;color:#f59e0b" id="sDoinExecDaily"></div>
                 </div>
                 <div class="summary-card">
                     <h4>面談獲得</h4>
@@ -972,6 +977,7 @@
                     <div class="sub">目標: <span id="sMendanGoal">0</span></div>
                     <div class="rate" id="sMendanRate">0%</div>
                     <div class="progress-bar"><div class="fill" id="sMendanBar"></div></div>
+                    <div class="sub" style="margin-top:4px;color:#f59e0b" id="sMendanDaily"></div>
                 </div>
                 <div class="summary-card">
                     <h4>面談実施</h4>
@@ -979,6 +985,7 @@
                     <div class="sub">目標: <span id="sMendanExecGoal">0</span></div>
                     <div class="rate" id="sMendanExecRate">0%</div>
                     <div class="progress-bar"><div class="fill" id="sMendanExecBar"></div></div>
+                    <div class="sub" style="margin-top:4px;color:#f59e0b" id="sMendanExecDaily"></div>
                 </div>
                 <div class="summary-card">
                     <h4>成約</h4>
@@ -986,6 +993,7 @@
                     <div class="sub">目標: <span id="sSeiyakuGoal">0</span></div>
                     <div class="rate" id="sSeiyakuRate">0%</div>
                     <div class="progress-bar"><div class="fill" id="sSeiyakuBar"></div></div>
+                    <div class="sub" style="margin-top:4px;color:#f59e0b" id="sSeiyakuDaily"></div>
                 </div>
             </div>
 
@@ -1002,6 +1010,9 @@
                     <div class="kpi-item"><div class="label">NG率</div><div class="value" id="kNg">0%</div></div>
                     <div class="kpi-item"><div class="label">テスクロ率</div><div class="value" id="kTestClose">0%</div></div>
                     <div class="kpi-item"><div class="label">オファー率</div><div class="value" id="kOffer">0%</div></div>
+                    <div class="kpi-item"><div class="label">動員獲得率</div><div class="value" id="kDoinGetRate">0%</div></div>
+                    <div class="kpi-item"><div class="label">動員実施率</div><div class="value" id="kDoinExecRate">0%</div></div>
+                    <div class="kpi-item"><div class="label">成約率</div><div class="value" id="kSeiyakuRate">0%</div></div>
                 </div>
             </div>
 
@@ -2417,55 +2428,117 @@
             }
             console.log('📊 renderSummary - selectedMember:', selectedMember, '目標:', JSON.stringify(g));
 
-            // 今日までに達成すべき目標を計算
+            // 今日までに達成すべき目標を計算（使える日数 = 月末日数 - 3）
             const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
+            const effectiveDays = daysInMonth - 3; // 使える日数
             const today = new Date();
-            const currentDay = (today.getFullYear() === currentYear && today.getMonth() + 1 === currentMonth)
-                ? today.getDate() : daysInMonth;
+            const isCurrentMonth = (today.getFullYear() === currentYear && today.getMonth() + 1 === currentMonth);
+            const currentDay = isCurrentMonth ? today.getDate() : effectiveDays;
+            const remainingDays = Math.max(effectiveDays - currentDay, 1); // 残り日数（最低1）
 
-            // 目標を計算する関数
+            // 今日までの目標を計算する関数
             const getTarget = (monthlyGoal) => {
                 if (viewPeriod === 'month') {
-                    // 月次：今日までの日割り目標
-                    return (monthlyGoal / daysInMonth) * currentDay;
+                    // 月次：今日までの日割り目標（使える日数ベース）
+                    return (monthlyGoal / effectiveDays) * Math.min(currentDay, effectiveDays);
                 } else {
-                    // 週次：月間目標を日割り×7日（どの週でも同じ目標）
-                    const weeklyGoal = monthlyGoal / daysInMonth * 7;
+                    // 週次：月間目標を使える日数で日割り×7日
+                    const weeklyGoal = (monthlyGoal / effectiveDays) * 7;
                     return weeklyGoal;
+                }
+            };
+
+            // 現在の変換率を計算（チェーン: 投稿→アポ獲得→アポ実施→動員獲得→動員実施→成約）
+            const convRate = (numerator, denominator) => denominator > 0 ? numerator / denominator : 0;
+            const rates = {
+                seiyaku: convRate(t.seiyaku, t.doinExec),        // 成約率 = 成約/動員実施
+                doinExec: convRate(t.doinExec, t.doinGet),       // 動員実施率 = 動員実施/動員獲得
+                doinGet: convRate(t.doinGet, t.apoExec),         // 動員率 = 動員獲得/アポ実施
+                apoExec: convRate(t.apoExec, t.apoGet),          // アポ実施率 = アポ実施/アポ獲得
+                apoGet: convRate(t.apoGet, t.post || 0),         // アポ獲得率 = アポ獲得/投稿
+                mendanExec: convRate(t.mendanExec, t.mendanGet)  // 面談実施率 = 面談実施/面談獲得
+            };
+
+            // 直接の日当たり必要数（目標残 / 残日数）
+            const directDaily = (goal, actual) => Math.max(goal - actual, 0) / remainingDays;
+
+            // 成約から逆算して各指標の日当たり必要数を計算
+            const seiyakuDaily = directDaily(g.seiyaku || 0, t.seiyaku);
+
+            const doinExecChain = rates.seiyaku > 0 ? seiyakuDaily / rates.seiyaku : 0;
+            const doinExecDaily = Math.max(directDaily(g.doinExec || 0, t.doinExec), doinExecChain);
+
+            const doinGetChain = rates.doinExec > 0 ? doinExecDaily / rates.doinExec : 0;
+            const doinGetDaily = Math.max(directDaily(g.doinGet || 0, t.doinGet), doinGetChain);
+
+            const apoExecChain = rates.doinGet > 0 ? doinGetDaily / rates.doinGet : 0;
+            const apoExecDaily = Math.max(directDaily(g.apoExec || 0, t.apoExec), apoExecChain);
+
+            const apoGetChain = rates.apoExec > 0 ? apoExecDaily / rates.apoExec : 0;
+            const apoGetDaily = Math.max(directDaily(g.apoGet || 0, t.apoGet), apoGetChain);
+
+            const postChain = rates.apoGet > 0 ? apoGetDaily / rates.apoGet : 0;
+            const postDaily = Math.max(directDaily(g.post || 0, t.post || 0), postChain);
+
+            const mendanGetDaily = directDaily(g.mendan || 0, t.mendanGet);
+
+            const mendanExecChain = rates.mendanExec > 0 ? mendanGetDaily / rates.mendanExec : 0;
+            const mendanExecDaily = Math.max(directDaily(g.mendanExec || 0, t.mendanExec), mendanExecChain);
+
+            // 残り日当たり表示を更新する関数
+            const setDailyDisplay = (elId, dailyNeeded, monthlyGoal, actual) => {
+                const el = document.getElementById(elId);
+                if (!el) return;
+                if (!isCurrentMonth) {
+                    el.textContent = '';
+                    return;
+                }
+                if ((monthlyGoal - actual) <= 0) {
+                    el.innerHTML = '<span style="color:#22c55e">達成!</span>';
+                } else {
+                    el.textContent = `残${remainingDays}日 / 日当たり${dailyNeeded.toFixed(1)}`;
                 }
             };
 
             document.getElementById('sPost').textContent = t.post || 0;
             document.getElementById('sPostGoal').textContent = getTarget(g.post || 0).toFixed(1);
             setRateDisplay('sPostRate', 'sPostBar', t.post || 0, getTarget(g.post || 0));
+            setDailyDisplay('sPostDaily', postDaily, g.post || 0, t.post || 0);
 
             document.getElementById('sApoGet').textContent = t.apoGet;
             document.getElementById('sApoGetGoal').textContent = getTarget(g.apoGet).toFixed(1);
             setRateDisplay('sApoGetRate', 'sApoGetBar', t.apoGet, getTarget(g.apoGet));
+            setDailyDisplay('sApoGetDaily', apoGetDaily, g.apoGet || 0, t.apoGet);
 
             document.getElementById('sApoExec').textContent = t.apoExec;
             document.getElementById('sApoExecGoal').textContent = getTarget(g.apoExec).toFixed(1);
             setRateDisplay('sApoExecRate', 'sApoExecBar', t.apoExec, getTarget(g.apoExec));
+            setDailyDisplay('sApoExecDaily', apoExecDaily, g.apoExec || 0, t.apoExec);
 
             document.getElementById('sDoinGet').textContent = t.doinGet;
             document.getElementById('sDoinGetGoal').textContent = getTarget(g.doinGet).toFixed(1);
             setRateDisplay('sDoinGetRate', 'sDoinGetBar', t.doinGet, getTarget(g.doinGet));
+            setDailyDisplay('sDoinGetDaily', doinGetDaily, g.doinGet || 0, t.doinGet);
 
             document.getElementById('sDoinExec').textContent = t.doinExec;
             document.getElementById('sDoinExecGoal').textContent = getTarget(g.doinExec).toFixed(1);
             setRateDisplay('sDoinExecRate', 'sDoinExecBar', t.doinExec, getTarget(g.doinExec));
+            setDailyDisplay('sDoinExecDaily', doinExecDaily, g.doinExec || 0, t.doinExec);
 
             document.getElementById('sMendan').textContent = t.mendanGet;
             document.getElementById('sMendanGoal').textContent = getTarget(g.mendan).toFixed(1);
             setRateDisplay('sMendanRate', 'sMendanBar', t.mendanGet, getTarget(g.mendan));
+            setDailyDisplay('sMendanDaily', mendanGetDaily, g.mendan || 0, t.mendanGet);
 
             document.getElementById('sMendanExec').textContent = t.mendanExec;
             document.getElementById('sMendanExecGoal').textContent = getTarget(g.mendanExec || 0).toFixed(1);
             setRateDisplay('sMendanExecRate', 'sMendanExecBar', t.mendanExec, getTarget(g.mendanExec || 0));
+            setDailyDisplay('sMendanExecDaily', mendanExecDaily, g.mendanExec || 0, t.mendanExec);
 
             document.getElementById('sSeiyaku').textContent = t.seiyaku;
             document.getElementById('sSeiyakuGoal').textContent = getTarget(g.seiyaku).toFixed(1);
             setRateDisplay('sSeiyakuRate', 'sSeiyakuBar', t.seiyaku, getTarget(g.seiyaku));
+            setDailyDisplay('sSeiyakuDaily', seiyakuDaily, g.seiyaku || 0, t.seiyaku);
 
             // KPI自動計算
             document.getElementById('kMuchaku').textContent = pct(t.muchaku, t.apoExec);
@@ -2473,6 +2546,9 @@
             document.getElementById('kNg').textContent = pct(t.ng, t.apoExec);
             document.getElementById('kTestClose').textContent = pct(t.testClose, t.apoExec);
             document.getElementById('kOffer').textContent = pct(t.offer, t.apoExec);
+            document.getElementById('kDoinGetRate').textContent = pct(t.doinGet, t.apoExec);
+            document.getElementById('kDoinExecRate').textContent = pct(t.doinExec, t.apoExec);
+            document.getElementById('kSeiyakuRate').textContent = pct(t.seiyaku, t.doinExec);
 
             // 無着地内訳を表示
             try { renderSummaryMuchakuBreakdown(); } catch(e) { console.error('renderSummaryMuchakuBreakdown error:', e); }
@@ -2629,12 +2705,13 @@
                 g = getMemberGoals(selectedMember);
             }
 
-            // 目標計算
+            // 目標計算（使える日数 = 月末日数 - 3）
             const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
+            const effectiveDays = daysInMonth - 3;
             const today = new Date();
             const currentDay = (today.getFullYear() === currentYear && today.getMonth() + 1 === currentMonth)
-                ? today.getDate() : daysInMonth;
-            const getTarget = (monthlyGoal) => Math.ceil((monthlyGoal || 0) / daysInMonth * currentDay);
+                ? today.getDate() : effectiveDays;
+            const getTarget = (monthlyGoal) => Math.ceil((monthlyGoal || 0) / effectiveDays * Math.min(currentDay, effectiveDays));
 
             // 数字とプログレスバー
             const metrics = [
@@ -2987,6 +3064,7 @@
 
         function getChartData(metricKey, monthlyGoal) {
             const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
+            const effectiveDays = daysInMonth - 3; // 使える日数
             let actualData = [];
             let targetData = [];
             let labels = [];
@@ -2994,19 +3072,19 @@
 
             if (viewPeriod === 'month') {
                 numDays = daysInMonth;
-                const dailyGoal = monthlyGoal / daysInMonth;
+                const dailyGoal = monthlyGoal / effectiveDays;
 
                 let cumulative = 0;
                 for (let day = 1; day <= daysInMonth; day++) {
                     const dayValue = getDayValueForChart(metricKey, day);
                     cumulative += dayValue;
                     actualData.push(cumulative);
-                    targetData.push(dailyGoal * day);
+                    targetData.push(dailyGoal * Math.min(day, effectiveDays));
                     labels.push(day.toString());
                 }
             } else {
                 numDays = 7;
-                const weeklyGoal = (monthlyGoal / daysInMonth) * 7;
+                const weeklyGoal = (monthlyGoal / effectiveDays) * 7;
                 const dailyGoal = weeklyGoal / 7;
                 const dates = getWeekDates();
                 const dayNames = ['土','日','月','火','水','木','金'];
