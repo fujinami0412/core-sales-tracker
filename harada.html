@@ -1668,6 +1668,22 @@
         const muchakuReasonLabels = ['こだわりが強い', '横槍', '勧誘ブロック', '不安が強い', '今じゃない', '完全副業ニーズ', 'その他'];
         const ngReasonLabels = ['金策NG', '既婚NG', '職業NG', 'スタンスNG', '精神NG'];
 
+        // 安全な配列合計（Firebaseがarrayをobjectに変換するケースに対応）
+        function safeArraySum(arr) {
+            if (!arr) return 0;
+            if (Array.isArray(arr)) return arr.reduce((a, b) => a + (b || 0), 0);
+            if (typeof arr === 'object') return Object.values(arr).reduce((a, b) => a + (b || 0), 0);
+            return 0;
+        }
+
+        // 月の最大週番号を計算（土曜始まりオフセット考慮）
+        function getMaxWeekNum(year, month) {
+            const daysInMonth = new Date(year, month, 0).getDate();
+            const firstDay = new Date(year, month - 1, 1);
+            const dow = (firstDay.getDay() + 1) % 7;
+            return Math.ceil((daysInMonth + dow) / 7);
+        }
+
         // チームパスワード（新規登録時のゲート用）
         const TEAM_PASSWORD = 'Hx7mK2pQ';
 
@@ -2313,14 +2329,16 @@
             const members = selectedMember === 'all' ? data.members : data.members.filter(m => m.id === selectedMember);
 
             if (viewPeriod === 'month') {
-                for (let w = 1; w <= 5; w++) {
+                const maxW = getMaxWeekNum(currentYear, currentMonth);
+                for (let w = 1; w <= maxW; w++) {
                     const weekKey = `${currentYear}-${currentMonth}-W${w}`;
-                    if (data.weeks[weekKey]) {
+                    const weekData = data.weeks[weekKey];
+                    if (weekData && weekData.daily) {
                         members.forEach(m => {
-                            const d = data.weeks[weekKey].daily[m.id];
+                            const d = weekData.daily[m.id];
                             if (d) {
                                 metrics.forEach(c => c.items.forEach(met => {
-                                    t[met.key] += (d[met.key] || [0,0,0,0,0,0,0]).reduce((a,b)=>a+b,0);
+                                    t[met.key] += safeArraySum(d[met.key]);
                                 }));
                             }
                         });
@@ -2330,7 +2348,7 @@
                 members.forEach(m => {
                     const d = getMemberDaily(m.id);
                     metrics.forEach(c => c.items.forEach(met => {
-                        t[met.key] += (d[met.key] || [0,0,0,0,0,0,0]).reduce((a,b)=>a+b,0);
+                        t[met.key] += safeArraySum(d[met.key]);
                     }));
                 });
             }
@@ -2342,19 +2360,21 @@
             metrics.forEach(c => c.items.forEach(m => t[m.key] = 0));
 
             if (viewPeriod === 'month') {
-                for (let w = 1; w <= 5; w++) {
+                const maxW = getMaxWeekNum(currentYear, currentMonth);
+                for (let w = 1; w <= maxW; w++) {
                     const weekKey = `${currentYear}-${currentMonth}-W${w}`;
-                    if (data.weeks[weekKey] && data.weeks[weekKey].daily[memberId]) {
-                        const d = data.weeks[weekKey].daily[memberId];
+                    const weekData = data.weeks[weekKey];
+                    if (weekData && weekData.daily && weekData.daily[memberId]) {
+                        const d = weekData.daily[memberId];
                         metrics.forEach(c => c.items.forEach(met => {
-                            t[met.key] += (d[met.key] || [0,0,0,0,0,0,0]).reduce((a,b)=>a+b,0);
+                            t[met.key] += safeArraySum(d[met.key]);
                         }));
                     }
                 }
             } else {
                 const d = getMemberDaily(memberId);
                 metrics.forEach(c => c.items.forEach(met => {
-                    t[met.key] += (d[met.key] || [0,0,0,0,0,0,0]).reduce((a,b)=>a+b,0);
+                    t[met.key] += safeArraySum(d[met.key]);
                 }));
             }
             return t;
@@ -2474,11 +2494,13 @@
 
             if (viewPeriod === 'month') {
                 // 月全体の集計
-                for (let w = 1; w <= 5; w++) {
+                const maxW = getMaxWeekNum(currentYear, currentMonth);
+                for (let w = 1; w <= maxW; w++) {
                     const weekKey = `${currentYear}-${currentMonth}-W${w}`;
-                    if (data.weeks[weekKey]) {
+                    const weekData = data.weeks[weekKey];
+                    if (weekData && weekData.daily) {
                         members.forEach(member => {
-                            const d = data.weeks[weekKey].daily[member.id];
+                            const d = weekData.daily[member.id];
                             if (d && d.muchakuReasonsByDay) {
                                 for (let day = 0; day < 7; day++) {
                                     const dayData = d.muchakuReasonsByDay[day] || {};
@@ -2526,11 +2548,13 @@
 
             if (viewPeriod === 'month') {
                 // 月全体の集計
-                for (let w = 1; w <= 5; w++) {
+                const maxW = getMaxWeekNum(currentYear, currentMonth);
+                for (let w = 1; w <= maxW; w++) {
                     const weekKey = `${currentYear}-${currentMonth}-W${w}`;
-                    if (data.weeks[weekKey]) {
+                    const weekData = data.weeks[weekKey];
+                    if (weekData && weekData.daily) {
                         members.forEach(member => {
-                            const d = data.weeks[weekKey].daily[member.id];
+                            const d = weekData.daily[member.id];
                             if (d && d.ngReasonsByDay) {
                                 for (let day = 0; day < 7; day++) {
                                     const dayData = d.ngReasonsByDay[day] || {};
@@ -2646,11 +2670,13 @@
             muchakuReasonLabels.forEach((_, i) => muchakuTotals[i] = 0);
 
             if (viewPeriod === 'month') {
-                for (let w = 1; w <= 5; w++) {
+                const maxW = getMaxWeekNum(currentYear, currentMonth);
+                for (let w = 1; w <= maxW; w++) {
                     const weekKey = `${currentYear}-${currentMonth}-W${w}`;
-                    if (data.weeks[weekKey]) {
+                    const weekData = data.weeks[weekKey];
+                    if (weekData && weekData.daily) {
                         members.forEach(member => {
-                            const d = data.weeks[weekKey].daily[member.id];
+                            const d = weekData.daily[member.id];
                             if (d && d.muchakuReasonsByDay) {
                                 for (let day = 0; day < 7; day++) {
                                     const dayData = d.muchakuReasonsByDay[day] || {};
@@ -2702,11 +2728,13 @@
             ngReasonLabels.forEach((_, i) => ngTotals[i] = 0);
 
             if (viewPeriod === 'month') {
-                for (let w = 1; w <= 5; w++) {
+                const maxW2 = getMaxWeekNum(currentYear, currentMonth);
+                for (let w = 1; w <= maxW2; w++) {
                     const weekKey = `${currentYear}-${currentMonth}-W${w}`;
-                    if (data.weeks[weekKey]) {
+                    const weekData = data.weeks[weekKey];
+                    if (weekData && weekData.daily) {
                         members.forEach(member => {
-                            const d = data.weeks[weekKey].daily[member.id];
+                            const d = weekData.daily[member.id];
                             if (d && d.ngReasonsByDay) {
                                 for (let day = 0; day < 7; day++) {
                                     const dayData = d.ngReasonsByDay[day] || {};
@@ -2745,7 +2773,8 @@
             // 残案件（メンバーでフィルタリング + 月表示対応）
             let allCases = [];
             if (viewPeriod === 'month') {
-                for (let w = 1; w <= 5; w++) {
+                const maxW3 = getMaxWeekNum(currentYear, currentMonth);
+                for (let w = 1; w <= maxW3; w++) {
                     const weekKey = `${currentYear}-${currentMonth}-W${w}`;
                     if (data.weeks[weekKey] && data.weeks[weekKey].review && data.weeks[weekKey].review.cases) {
                         allCases = allCases.concat(data.weeks[weekKey].review.cases);
@@ -2766,7 +2795,8 @@
             // キャンセル（メンバーでフィルタリング + 理由表示 + 月表示対応）
             let allCancels = [];
             if (viewPeriod === 'month') {
-                for (let w = 1; w <= 5; w++) {
+                const maxW4 = getMaxWeekNum(currentYear, currentMonth);
+                for (let w = 1; w <= maxW4; w++) {
                     const weekKey = `${currentYear}-${currentMonth}-W${w}`;
                     if (data.weeks[weekKey] && data.weeks[weekKey].review && data.weeks[weekKey].review.cancels) {
                         allCancels = allCancels.concat(data.weeks[weekKey].review.cancels);
@@ -2788,7 +2818,8 @@
             // 動員後無着地（メンバーでフィルタリング + 月表示対応）
             let allDoinMuchaku = [];
             if (viewPeriod === 'month') {
-                for (let w = 1; w <= 5; w++) {
+                const maxW5 = getMaxWeekNum(currentYear, currentMonth);
+                for (let w = 1; w <= maxW5; w++) {
                     const weekKey = `${currentYear}-${currentMonth}-W${w}`;
                     if (data.weeks[weekKey] && data.weeks[weekKey].review && data.weeks[weekKey].review.doinMuchakuList) {
                         allDoinMuchaku = allDoinMuchaku.concat(data.weeks[weekKey].review.doinMuchakuList);
@@ -3006,8 +3037,14 @@
 
             let total = 0;
             members.forEach(m => {
-                if (data.weeks[weekKey] && data.weeks[weekKey].daily[m.id]) {
-                    total += (data.weeks[weekKey].daily[m.id][metricKey] || [0,0,0,0,0,0,0])[dayOfWeek] || 0;
+                const weekData = data.weeks[weekKey];
+                if (weekData && weekData.daily && weekData.daily[m.id]) {
+                    const arr = weekData.daily[m.id][metricKey];
+                    if (Array.isArray(arr)) {
+                        total += arr[dayOfWeek] || 0;
+                    } else if (arr && typeof arr === 'object') {
+                        total += arr[dayOfWeek] || 0;
+                    }
                 }
             });
             return total;
@@ -3246,8 +3283,10 @@
             const dayOfWeek = (date.getDay() + 1) % 7;
 
             const weekKey = `${currentYear}-${currentMonth}-W${weekNum}`;
-            if (data.weeks[weekKey] && data.weeks[weekKey].daily[memberId]) {
-                return (data.weeks[weekKey].daily[memberId][metricKey] || [0,0,0,0,0,0,0])[dayOfWeek] || 0;
+            const weekData = data.weeks[weekKey];
+            if (weekData && weekData.daily && weekData.daily[memberId]) {
+                const arr = weekData.daily[memberId][metricKey];
+                if (arr) return (Array.isArray(arr) ? arr : Object.values(arr))[dayOfWeek] || 0;
             }
             return 0;
         }
@@ -3714,24 +3753,25 @@
 
             // 月全体のトータルを計算（選択したアカウントのみ）
             let totals = { follow: 0, follower: 0, followCut: 0, followerCut: 0, send: 0, reply: 0, offer: 0, apoGet: 0, apoExec: 0, doinPlan: 0, doinExec: 0, seiyaku: 0 };
-            for (let w = 1; w <= 5; w++) {
+            const maxWIg = getMaxWeekNum(currentYear, currentMonth);
+            for (let w = 1; w <= maxWIg; w++) {
                 const weekKey = `${currentYear}-${currentMonth}-W${w}`;
                 if (data.weeks[weekKey] && data.weeks[weekKey].instagram) {
                     analysisAccounts.forEach(acc => {
                         const d = data.weeks[weekKey].instagram[acc.id];
                         if (d) {
-                            totals.follow += (d.follow || [0,0,0,0,0,0,0]).reduce((a,b) => a+b, 0);
-                            totals.follower += (d.follower || [0,0,0,0,0,0,0]).reduce((a,b) => a+b, 0);
-                            totals.followCut += (d.followCut || [0,0,0,0,0,0,0]).reduce((a,b) => a+b, 0);
-                            totals.followerCut += (d.followerCut || [0,0,0,0,0,0,0]).reduce((a,b) => a+b, 0);
-                            totals.send += (d.dmSend || [0,0,0,0,0,0,0]).reduce((a,b) => a+b, 0);
-                            totals.reply += (d.dmReply || [0,0,0,0,0,0,0]).reduce((a,b) => a+b, 0);
-                            totals.offer += (d.dmOffer || [0,0,0,0,0,0,0]).reduce((a,b) => a+b, 0);
-                            totals.apoGet += (d.apoGet || [0,0,0,0,0,0,0]).reduce((a,b) => a+b, 0);
-                            totals.apoExec += (d.apoExec || [0,0,0,0,0,0,0]).reduce((a,b) => a+b, 0);
-                            totals.doinPlan += (d.doinPlan || [0,0,0,0,0,0,0]).reduce((a,b) => a+b, 0);
-                            totals.doinExec += (d.doinExec || [0,0,0,0,0,0,0]).reduce((a,b) => a+b, 0);
-                            totals.seiyaku += (d.seiyaku || [0,0,0,0,0,0,0]).reduce((a,b) => a+b, 0);
+                            totals.follow += safeArraySum(d.follow);
+                            totals.follower += safeArraySum(d.follower);
+                            totals.followCut += safeArraySum(d.followCut);
+                            totals.followerCut += safeArraySum(d.followerCut);
+                            totals.send += safeArraySum(d.dmSend);
+                            totals.reply += safeArraySum(d.dmReply);
+                            totals.offer += safeArraySum(d.dmOffer);
+                            totals.apoGet += safeArraySum(d.apoGet);
+                            totals.apoExec += safeArraySum(d.apoExec);
+                            totals.doinPlan += safeArraySum(d.doinPlan);
+                            totals.doinExec += safeArraySum(d.doinExec);
+                            totals.seiyaku += safeArraySum(d.seiyaku);
                         }
                     });
                 }
@@ -3950,17 +3990,18 @@
             container.innerHTML = myAccounts.map(acc => {
                 // 月全体のトータルを計算
                 let t = { send: 0, reply: 0, offer: 0, apoGet: 0, apoExec: 0, doinExec: 0, seiyaku: 0 };
-                for (let w = 1; w <= 5; w++) {
+                const maxWIg2 = getMaxWeekNum(currentYear, currentMonth);
+                for (let w = 1; w <= maxWIg2; w++) {
                     const weekKey = `${currentYear}-${currentMonth}-W${w}`;
                     if (data.weeks[weekKey] && data.weeks[weekKey].instagram && data.weeks[weekKey].instagram[acc.id]) {
                         const d = data.weeks[weekKey].instagram[acc.id];
-                        t.send += (d.dmSend || [0,0,0,0,0,0,0]).reduce((a,b) => a+b, 0);
-                        t.reply += (d.dmReply || [0,0,0,0,0,0,0]).reduce((a,b) => a+b, 0);
-                        t.offer += (d.dmOffer || [0,0,0,0,0,0,0]).reduce((a,b) => a+b, 0);
-                        t.apoGet += (d.apoGet || [0,0,0,0,0,0,0]).reduce((a,b) => a+b, 0);
-                        t.apoExec += (d.apoExec || [0,0,0,0,0,0,0]).reduce((a,b) => a+b, 0);
-                        t.doinExec += (d.doinExec || [0,0,0,0,0,0,0]).reduce((a,b) => a+b, 0);
-                        t.seiyaku += (d.seiyaku || [0,0,0,0,0,0,0]).reduce((a,b) => a+b, 0);
+                        t.send += safeArraySum(d.dmSend);
+                        t.reply += safeArraySum(d.dmReply);
+                        t.offer += safeArraySum(d.dmOffer);
+                        t.apoGet += safeArraySum(d.apoGet);
+                        t.apoExec += safeArraySum(d.apoExec);
+                        t.doinExec += safeArraySum(d.doinExec);
+                        t.seiyaku += safeArraySum(d.seiyaku);
                     }
                 }
                 const replyRate = t.send > 0 ? Math.round((t.reply / t.send) * 100) : 0;
@@ -5312,12 +5353,14 @@
             msg += `■ 現在の週: ${weekKey}\n\n`;
 
             if (viewPeriod === 'month') {
-                msg += `■ 月次モード: W1〜W5の全データを集計\n\n`;
-                for (let w = 1; w <= 5; w++) {
+                const maxWDbg = getMaxWeekNum(currentYear, currentMonth);
+                msg += `■ 月次モード: W1〜W${maxWDbg}の全データを集計\n\n`;
+                for (let w = 1; w <= maxWDbg; w++) {
                     const wk = `${currentYear}-${currentMonth}-W${w}`;
-                    if (data.weeks[wk]) {
+                    const wkData = data.weeks[wk];
+                    if (wkData && wkData.daily) {
                         members.forEach(member => {
-                            const d = data.weeks[wk].daily[member.id];
+                            const d = wkData.daily[member.id];
                             if (d && d.ngReasonsByDay) {
                                 for (let day = 0; day < 7; day++) {
                                     const dayData = d.ngReasonsByDay[day];
