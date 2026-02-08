@@ -2475,15 +2475,15 @@
             document.getElementById('kOffer').textContent = pct(t.offer, t.apoExec);
 
             // 無着地内訳を表示
-            renderSummaryMuchakuBreakdown();
+            try { renderSummaryMuchakuBreakdown(); } catch(e) { console.error('renderSummaryMuchakuBreakdown error:', e); }
             // NG理由内訳を表示
-            renderSummaryNgBreakdown();
+            try { renderSummaryNgBreakdown(); } catch(e) { console.error('renderSummaryNgBreakdown error:', e); }
 
             // 残案件・キャンセル・動員後無着地を表示
-            renderSummaryCasesAndCancels();
+            try { renderSummaryCasesAndCancels(); } catch(e) { console.error('renderSummaryCasesAndCancels error:', e); }
 
             // チャートを描画
-            renderLargeCharts();
+            try { renderLargeCharts(); } catch(e) { console.error('renderLargeCharts error:', e); }
         }
 
         function renderSummaryMuchakuBreakdown() {
@@ -2771,6 +2771,7 @@
             document.getElementById('rsNgTotal').textContent = `(${ngTotal}件)`;
 
             // 残案件（メンバーでフィルタリング + 月表示対応）
+            const reviewData = getWeekData().review;
             let allCases = [];
             if (viewPeriod === 'month') {
                 const maxW3 = getMaxWeekNum(currentYear, currentMonth);
@@ -2781,7 +2782,7 @@
                     }
                 }
             } else {
-                allCases = r.cases || [];
+                allCases = reviewData.cases || [];
             }
             const filteredCases = allCases.filter(c => selectedMember === 'all' || !c.memberId || c.memberId === selectedMember);
             document.getElementById('rsCasesCount').textContent = `(${filteredCases.length}件)`;
@@ -2803,7 +2804,7 @@
                     }
                 }
             } else {
-                allCancels = r.cancels || [];
+                allCancels = reviewData.cancels || [];
             }
             const filteredCancels = allCancels.filter(c => selectedMember === 'all' || !c.memberId || c.memberId === selectedMember);
             document.getElementById('rsCancelsCount').textContent = `(${filteredCancels.length}件)`;
@@ -2826,7 +2827,7 @@
                     }
                 }
             } else {
-                allDoinMuchaku = r.doinMuchakuList || [];
+                allDoinMuchaku = reviewData.doinMuchakuList || [];
             }
             const filteredDoinMuchaku = allDoinMuchaku.filter(item => selectedMember === 'all' || !item.memberId || item.memberId === selectedMember);
             document.getElementById('rsDoinMuchakuCount').textContent = `(${filteredDoinMuchaku.length}件)`;
