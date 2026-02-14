@@ -789,6 +789,199 @@
             font-size: 13px;
         }
     </style>
+    <script>
+    // === Supabase連携（appointment-manager） ===
+    const SUPABASE_URL = 'https://pbctrjnnrvssdyywgtdx.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBiY3Ryam5ucnZzc2R5eXdndGR4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk5ODA2MDgsImV4cCI6MjA4NTU1NjYwOH0.MTOIZ9enImEiakaxyNb-SGw6QFeYFia83cmOk5TSnq4';
+
+    // 残案件ステータス
+    const SUPABASE_ACTIVE_STATUSES = [
+        '相談会動員','直クロ動員','日程調整中',
+        '直クロセットアップ','直クロフォロー',
+        'ライン交換',
+        '再クロセットアップ','再クロフォロー',
+        '再々クロセットアップ','再々クロフォロー',
+        '面談セットアップ','面談フォロー','面談着地',
+        '教育中'
+    ];
+
+    // 動員キャンセルステータス
+    const SUPABASE_CANCEL_STATUSES = ['動員キャンセル'];
+    // 動員後無着地ステータス
+    const SUPABASE_POST_MOB_STATUSES = ['動員後無着地'];
+
+    // Supabaseからデータ取得
+    async function fetchSupabaseActiveCases() {
+        try {
+            const statusFilter = SUPABASE_ACTIVE_STATUSES.map(s => encodeURIComponent(s)).join(',');
+            const url = `${SUPABASE_URL}/rest/v1/appointments?status=in.(${statusFilter})&is_deleted=eq.false&select=id,status,created_at,closer_id,notes,customer:customers!inner(name,cloudworks_url),user:profiles!appointments_user_id_fkey(id,name),closer:profiles!appointments_closer_id_fkey(id,name)&order=created_at.desc`;
+            const res = await fetch(url, {
+                headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` }
+            });
+            if (!res.ok) return [];
+            return await res.json();
+        } catch (e) { console.error('Supabase残案件取得エラー:', e); return []; }
+    }
+
+    async function fetchSupabaseCancels() {
+        try {
+            const url = `${SUPABASE_URL}/rest/v1/appointments?status=eq.動員キャンセル&is_deleted=eq.false&select=id,status,cancel_reason,created_at,customer:customers!inner(name),user:profiles!appointments_user_id_fkey(id,name),closer:profiles!appointments_closer_id_fkey(id,name)&order=created_at.desc`;
+            const res = await fetch(url, {
+                headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` }
+            });
+            if (!res.ok) return [];
+            return await res.json();
+        } catch (e) { console.error('Supabaseキャンセル取得エラー:', e); return []; }
+    }
+
+    async function fetchSupabasePostMob() {
+        try {
+            const url = `${SUPABASE_URL}/rest/v1/appointments?status=eq.動員後無着地&is_deleted=eq.false&select=id,status,post_mobilization_reason,created_at,customer:customers!inner(name),user:profiles!appointments_user_id_fkey(id,name)&order=created_at.desc`;
+            const res = await fetch(url, {
+                headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` }
+            });
+            if (!res.ok) return [];
+            return await res.json();
+        } catch (e) { console.error('Supabase動員後無着地取得エラー:', e); return []; }
+    }
+
+    // ステータス短縮名
+    const STATUS_SHORT_MAP = {
+        '相談会動員':'相談会','直クロ動員':'直クロ動員','日程調整中':'日程調整',
+        '直クロセットアップ':'直クロSU','直クロフォロー':'直クロF',
+        'ライン交換':'LINE',
+        '再クロセットアップ':'再クロSU','再クロフォロー':'再クロF',
+        '再々クロセットアップ':'再々クロSU','再々クロフォロー':'再々クロF',
+        '面談セットアップ':'面談SU','面談フォロー':'面談F','面談着地':'面談着地',
+        '教育中':'教育中'
+    };
+
+    // Supabase残案件をサマリーに描画
+    let supabaseCasesCache = [];
+    let supabaseCancelsCache = [];
+    let supabasePostMobCache = [];
+
+    // メールマッピング: Supabase user_id → email
+    let supabaseEmailMap = {}; // { supabase_user_id: email }
+
+    // アポ管理ツールからメールマッピングを取得
+    const APPOINTMENT_MANAGER_URL = 'http://localhost:3000';
+    async function fetchEmailMapping() {
+        try {
+            const res = await fetch(`${APPOINTMENT_MANAGER_URL}/api/email-mapping`);
+            if (!res.ok) return;
+            const mapping = await res.json();
+            // { supabase_user_id: email } のマップを構築
+            supabaseEmailMap = {};
+            mapping.forEach(u => { supabaseEmailMap[u.id] = u.email; });
+            console.log('Supabaseメールマッピング取得:', Object.keys(supabaseEmailMap).length, '件');
+        } catch (e) {
+            console.warn('メールマッピング取得失敗（名前ベースにフォールバック）:', e.message);
+        }
+    }
+
+    // Supabaseユーザーから施策ツールのmemberIdを逆引き（メール優先、名前フォールバック）
+    function supabaseUserToMemberId(user) {
+        if (!user || typeof data === 'undefined' || !data.members) return null;
+
+        // 方法1: メールアドレスでマッチング（Firebase userMap経由）
+        if (typeof userMap !== 'undefined' && user.id && supabaseEmailMap[user.id]) {
+            const supabaseEmail = supabaseEmailMap[user.id];
+            for (const uid in userMap) {
+                if (userMap[uid].email === supabaseEmail && userMap[uid].memberId) {
+                    return userMap[uid].memberId;
+                }
+            }
+        }
+
+        // 方法2: 名前でフォールバック
+        if (user.name) {
+            const match = data.members.find(m => m.name === user.name);
+            if (match) return match.id;
+        }
+
+        return null;
+    }
+
+    // 施策ツールのメンバーフィルタを適用
+    function filterBySelectedMember(items) {
+        if (typeof selectedMember === 'undefined' || selectedMember === 'all') return items;
+        return items.filter(item => {
+            const memberId = supabaseUserToMemberId(item.user);
+            return memberId === selectedMember;
+        });
+    }
+
+    async function syncSupabaseCases() {
+        // メールマッピングを先に取得
+        await fetchEmailMapping();
+        const [cases, cancels, postMob] = await Promise.all([
+            fetchSupabaseActiveCases(),
+            fetchSupabaseCancels(),
+            fetchSupabasePostMob()
+        ]);
+        supabaseCasesCache = cases;
+        supabaseCancelsCache = cancels;
+        supabasePostMobCache = postMob;
+        renderSupabaseSummary();
+        renderSupabaseInputSection();
+    }
+
+    function renderSupabaseSummary() {
+        // サマリーの残案件
+        const el = document.getElementById('rsCasesList');
+        const countEl = document.getElementById('rsCasesCount');
+        if (!el || !countEl) return;
+
+        const cases = filterBySelectedMember(supabaseCasesCache);
+        countEl.textContent = `(${cases.length}件 - アポ管理連携)`;
+        el.innerHTML = cases.length === 0
+            ? '<p style="color:#64748b">残案件なし</p>'
+            : cases.map(c => {
+                const st = STATUS_SHORT_MAP[c.status] || c.status;
+                const closer = c.closer ? c.closer.name : '';
+                return `<div style="padding:4px;background:#0f172a;border-radius:4px;margin-bottom:4px">
+                    <span style="font-size:9px;background:#3b82f6;padding:1px 4px;border-radius:3px;margin-right:4px">${st}</span>
+                    ${c.customer?.name || '不明'}
+                    <span style="color:#64748b;font-size:10px;margin-left:4px">${c.user?.name || ''}</span>
+                    ${closer ? `<span style="color:#64748b;font-size:10px"> / ${closer}</span>` : ''}
+                </div>`;
+            }).join('');
+
+        // サマリーのキャンセル
+        const cancelEl = document.getElementById('rsCancelsList');
+        const cancelCountEl = document.getElementById('rsCancelsCount');
+        if (cancelEl && cancelCountEl) {
+            const cancels = filterBySelectedMember(supabaseCancelsCache);
+            cancelCountEl.textContent = `(${cancels.length}件)`;
+            cancelEl.innerHTML = cancels.length === 0
+                ? '<p style="color:#64748b">なし</p>'
+                : cancels.map(c => `<div style="padding:4px;background:#0f172a;border-radius:4px;margin-bottom:4px;border-left:2px solid #eab308">
+                    ${c.customer?.name || '不明'}
+                    <span style="color:#eab308;font-size:11px">${c.cancel_reason || ''}</span>
+                </div>`).join('');
+        }
+
+        // サマリーの動員後無着地
+        const postEl = document.getElementById('rsDoinMuchakuList');
+        const postCountEl = document.getElementById('rsDoinMuchakuCount');
+        if (postEl && postCountEl) {
+            const postMob = filterBySelectedMember(supabasePostMobCache);
+            postCountEl.textContent = `(${postMob.length}件)`;
+            postEl.innerHTML = postMob.length === 0
+                ? '<p style="color:#64748b">なし</p>'
+                : postMob.map(c => `<div style="padding:4px;background:#0f172a;border-radius:4px;margin-bottom:4px;border-left:2px solid #ef4444">
+                    ${c.customer?.name || '不明'}
+                    <span style="color:#ef4444;font-size:11px">${c.post_mobilization_reason || ''}</span>
+                </div>`).join('');
+        }
+    }
+
+    function renderSupabaseInputSection() {
+        // renderCases()に統合済み - 互換性のためrenderCasesを呼び出す
+        renderCases();
+    }
+    </script>
 </head>
 <body>
     <!-- Firebase認証モーダル -->
@@ -1433,7 +1626,7 @@
 
                 <div id="settingsEditableArea">
                     <h3 style="font-size:14px;color:#94a3b8;margin-bottom:8px">月間予算</h3>
-                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:16px">
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:8px">
                         <div class="form-group"><label>必要投稿数</label><input type="number" id="bPost" onchange="saveSettings()"></div>
                         <div class="form-group"><label>アポ獲得</label><input type="number" id="bApoGet" onchange="saveSettings()"></div>
                         <div class="form-group"><label>アポ実施</label><input type="number" id="bApoExec" onchange="saveSettings()"></div>
@@ -1441,6 +1634,10 @@
                         <div class="form-group"><label>動員直クロ実施</label><input type="number" id="bDoinExec" onchange="saveSettings()"></div>
                         <div class="form-group"><label>面談獲得</label><input type="number" id="bMendan" onchange="saveSettings()"></div>
                         <div class="form-group"><label>成約</label><input type="number" id="bSeiyaku" onchange="saveSettings()"></div>
+                    </div>
+                    <div style="margin-bottom:16px">
+                        <button class="btn" style="background:#3b82f6;font-size:12px" onclick="autoCalcGoals()">予算から自動計算 (x1.2)</button>
+                        <span style="font-size:11px;color:#64748b;margin-left:8px">予算 x 1.2 を目標に自動設定（小数点は切り上げ）</span>
                     </div>
 
                     <h3 style="font-size:14px;color:#94a3b8;margin-bottom:8px">月間目標</h3>
@@ -1454,6 +1651,13 @@
                         <div class="form-group"><label>面談実施</label><input type="number" id="mMendanExec" onchange="saveSettings()"></div>
                         <div class="form-group"><label>成約</label><input type="number" id="mSeiyaku" onchange="saveSettings()"></div>
                     </div>
+                    <div style="margin-top:8px;margin-bottom:8px">
+                        <button class="btn" style="background:#8b5cf6;font-size:12px" onclick="autoSetTargetsFromRatesUI()">過去実績から目標自動設定</button>
+                        <span style="font-size:11px;color:#64748b;margin-left:8px">過去2ヶ月の変換率を元に逆算</span>
+                    </div>
+
+                    <!-- 乖離チェック表示エリア -->
+                    <div id="ratesDivergenceWarnings" style="margin-top:8px"></div>
                 </div>
             </div>
 
@@ -1467,6 +1671,23 @@
                     <div class="form-group"><label>アポ実施</label><input type="number" id="igGoalApoExec" onchange="saveSettings()"></div>
                     <div class="form-group"><label>動員実施</label><input type="number" id="igGoalDoinExec" onchange="saveSettings()"></div>
                     <div class="form-group"><label>成約</label><input type="number" id="igGoalSeiyaku" onchange="saveSettings()"></div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>月末パーセンテージ記録</h2>
+                <p style="font-size:12px;color:#94a3b8;margin-bottom:12px">現在の変換率を記録し、来月の目標自動設定に使用します</p>
+                <div id="monthlyRatesPreview" style="margin-bottom:12px"></div>
+                <div style="display:flex;gap:10px;flex-wrap:wrap">
+                    <button class="btn btn-primary" onclick="previewAndSaveMonthlyRates()">今月の実績パーセンテージを記録</button>
+                    <button class="btn btn-secondary" onclick="showPastRatesHistory()">過去の記録を確認</button>
+                </div>
+                <div id="monthlyRatesSaveResult" style="margin-top:12px"></div>
+                <div id="pastRatesHistory" style="margin-top:12px"></div>
+                <!-- 月末自動保存プロンプト -->
+                <div id="monthEndRatePrompt" style="display:none;margin-top:12px;padding:12px;background:#78350f;border:1px solid #f59e0b;border-radius:8px">
+                    <p style="color:#fbbf24;font-size:13px;font-weight:600">月末が近づいています。今月の実績パーセンテージを記録しましょう。</p>
+                    <button class="btn" style="background:#f59e0b;color:#000;font-size:12px;margin-top:8px" onclick="previewAndSaveMonthlyRates()">今すぐ記録</button>
                 </div>
             </div>
 
@@ -1596,6 +1817,7 @@
             },
             weeks: {},
             monthVideos: {},
+            monthlyRates: {}, // メンバー別・月別の変換率記録 { [memberId]: { [YYYY-M]: { rates... } } }
             lastUpdated: null // タイムスタンプ（データ更新検知用）
         };
 
@@ -1981,6 +2203,8 @@
             updateSyncStatus();
             renderAll();
             applySeasonalBackground();
+            // アポ管理システム（Supabase）から残案件を同期
+            syncSupabaseCases();
         }
 
         function init() {
@@ -2099,6 +2323,10 @@
                 cases: [],
                 cancels: []
             };
+            // 既存データにcases/cancels/doinMuchakuListがない場合の初期化
+            if (!data.weeks[k].review.cases) data.weeks[k].review.cases = [];
+            if (!data.weeks[k].review.cancels) data.weeks[k].review.cancels = [];
+            if (!data.weeks[k].review.doinMuchakuList) data.weeks[k].review.doinMuchakuList = [];
             return data.weeks[k];
         }
 
@@ -2326,6 +2554,9 @@
             try { renderReview(); } catch(e) { console.error('renderReview:', e.message); }
             try { renderInstagram(); } catch(e) { console.error('renderInstagram:', e.message); }
             try { renderSettings(); } catch(e) { console.error('renderSettings:', e.message); }
+            // Supabase連携データの再レンダリング（メンバー選択でフィルタ反映）
+            try { renderSupabaseSummary(); } catch(e) { console.error('renderSupabaseSummary:', e.message); }
+            try { renderSupabaseInputSection(); } catch(e) { console.error('renderSupabaseInputSection:', e.message); }
         }
 
         function renderMemberSelect() {
@@ -2462,31 +2693,76 @@
             // 直接の日当たり必要数（目標残 / 残日数）
             const directDaily = (goal, actual) => Math.max(goal - actual, 0) / remainingDays;
 
-            // 成約から逆算して各指標の日当たり必要数を計算
+            // ===== 計画ベース: 目標値から暗黙の転換率を計算して逆算 =====
+            const planRates = {
+                seiyaku: convRate(g.seiyaku || 0, g.doinExec || 0),
+                doinExec: convRate(g.doinExec || 0, g.doinGet || 0),
+                doinGet: convRate(g.doinGet || 0, g.apoExec || 0),
+                apoExec: convRate(g.apoExec || 0, g.apoGet || 0),
+                apoGet: convRate(g.apoGet || 0, g.post || 0),
+                mendanExec: convRate(g.mendanExec || 0, g.mendan || 0)
+            };
+
             const seiyakuDaily = directDaily(g.seiyaku || 0, t.seiyaku);
 
-            const doinExecChain = rates.seiyaku > 0 ? seiyakuDaily / rates.seiyaku : 0;
+            const doinExecChain = planRates.seiyaku > 0 ? seiyakuDaily / planRates.seiyaku : 0;
             const doinExecDaily = Math.max(directDaily(g.doinExec || 0, t.doinExec), doinExecChain);
 
-            const doinGetChain = rates.doinExec > 0 ? doinExecDaily / rates.doinExec : 0;
+            const doinGetChain = planRates.doinExec > 0 ? doinExecDaily / planRates.doinExec : 0;
             const doinGetDaily = Math.max(directDaily(g.doinGet || 0, t.doinGet), doinGetChain);
 
-            const apoExecChain = rates.doinGet > 0 ? doinGetDaily / rates.doinGet : 0;
+            const apoExecChain = planRates.doinGet > 0 ? doinGetDaily / planRates.doinGet : 0;
             const apoExecDaily = Math.max(directDaily(g.apoExec || 0, t.apoExec), apoExecChain);
 
-            const apoGetChain = rates.apoExec > 0 ? apoExecDaily / rates.apoExec : 0;
+            const apoGetChain = planRates.apoExec > 0 ? apoExecDaily / planRates.apoExec : 0;
             const apoGetDaily = Math.max(directDaily(g.apoGet || 0, t.apoGet), apoGetChain);
 
-            const postChain = rates.apoGet > 0 ? apoGetDaily / rates.apoGet : 0;
+            const postChain = planRates.apoGet > 0 ? apoGetDaily / planRates.apoGet : 0;
             const postDaily = Math.max(directDaily(g.post || 0, t.post || 0), postChain);
 
             const mendanGetDaily = directDaily(g.mendan || 0, t.mendanGet);
 
-            const mendanExecChain = rates.mendanExec > 0 ? mendanGetDaily / rates.mendanExec : 0;
+            const mendanExecChain = planRates.mendanExec > 0 ? mendanGetDaily / planRates.mendanExec : 0;
             const mendanExecDaily = Math.max(directDaily(g.mendanExec || 0, t.mendanExec), mendanExecChain);
 
-            // 残り日当たり表示を更新する関数
-            const setDailyDisplay = (elId, dailyNeeded, monthlyGoal, actual) => {
+            // ===== 実績ベース: 実際のデータの転換率を使って逆算 =====
+            const hasEnoughData = (t.apoGet > 2 || t.apoExec > 1); // 最低限のデータがあるか
+            let actualPostDaily = postDaily;
+            let actualApoGetDaily = apoGetDaily;
+            let actualApoExecDaily = apoExecDaily;
+            let actualDoinGetDaily = doinGetDaily;
+            let actualDoinExecDaily = doinExecDaily;
+            let actualMendanGetDaily = mendanGetDaily;
+            let actualMendanExecDaily = mendanExecDaily;
+            let actualSeiyakuDaily = seiyakuDaily;
+
+            if (hasEnoughData) {
+                // 実績ベースの逆算（成約目標残から逆算、実績の変換率 rates を使用）
+                actualSeiyakuDaily = directDaily(g.seiyaku || 0, t.seiyaku);
+
+                const actDoinExecChain = rates.seiyaku > 0 ? actualSeiyakuDaily / rates.seiyaku : 0;
+                actualDoinExecDaily = Math.max(directDaily(g.doinExec || 0, t.doinExec), actDoinExecChain);
+
+                const actDoinGetChain = rates.doinExec > 0 ? actualDoinExecDaily / rates.doinExec : 0;
+                actualDoinGetDaily = Math.max(directDaily(g.doinGet || 0, t.doinGet), actDoinGetChain);
+
+                const actApoExecChain = rates.doinGet > 0 ? actualDoinGetDaily / rates.doinGet : 0;
+                actualApoExecDaily = Math.max(directDaily(g.apoExec || 0, t.apoExec), actApoExecChain);
+
+                const actApoGetChain = rates.apoExec > 0 ? actualApoExecDaily / rates.apoExec : 0;
+                actualApoGetDaily = Math.max(directDaily(g.apoGet || 0, t.apoGet), actApoGetChain);
+
+                const actPostChain = rates.apoGet > 0 ? actualApoGetDaily / rates.apoGet : 0;
+                actualPostDaily = Math.max(directDaily(g.post || 0, t.post || 0), actPostChain);
+
+                actualMendanGetDaily = directDaily(g.mendan || 0, t.mendanGet);
+
+                const actMendanExecChain = rates.mendanExec > 0 ? actualMendanGetDaily / rates.mendanExec : 0;
+                actualMendanExecDaily = Math.max(directDaily(g.mendanExec || 0, t.mendanExec), actMendanExecChain);
+            }
+
+            // Change 5 & 8: 残り日当たり表示を更新する関数（小数1桁 + 切り上げ整数表示 + 計画vs実績）
+            const setDailyDisplay = (elId, planDaily, actualDaily, monthlyGoal, actual) => {
                 const el = document.getElementById(elId);
                 if (!el) return;
                 if (!isCurrentMonth) {
@@ -2495,50 +2771,76 @@
                 }
                 if ((monthlyGoal - actual) <= 0) {
                     el.innerHTML = '<span style="color:#22c55e">達成!</span>';
+                    return;
+                }
+
+                const ceilVal = Math.ceil(actualDaily);
+                let html = `残${remainingDays}日 / 日${actualDaily.toFixed(1)}`;
+                if (actualDaily % 1 !== 0) {
+                    html += ` <span style="color:#fbbf24;font-size:11px">追う数字: ${ceilVal}</span>`;
+                }
+
+                // 計画ベースと実績ベースが大きく異なる場合（10%以上乖離）、両方表示
+                if (hasEnoughData && planDaily > 0 && Math.abs(planDaily - actualDaily) / planDaily > 0.1) {
+                    html += `<br><span style="font-size:10px;color:#64748b">計画: ${planDaily.toFixed(1)} / 実績: ${actualDaily.toFixed(1)}</span>`;
+                }
+
+                el.innerHTML = html;
+            };
+
+            // Change 5: 目標表示（小数1桁 + 切り上げ整数）
+            const setGoalDisplay = (elId, goalValue) => {
+                const el = document.getElementById(elId);
+                if (!el) return;
+                const targetVal = getTarget(goalValue);
+                const decimal = targetVal.toFixed(1);
+                const ceil = Math.ceil(targetVal);
+                if (targetVal % 1 !== 0 && targetVal > 0) {
+                    el.innerHTML = `${decimal} <span style="font-size:10px;color:#fbbf24">(${ceil})</span>`;
                 } else {
-                    el.textContent = `残${remainingDays}日 / 日当たり${dailyNeeded.toFixed(1)}`;
+                    el.textContent = decimal;
                 }
             };
 
             document.getElementById('sPost').textContent = t.post || 0;
-            document.getElementById('sPostGoal').textContent = getTarget(g.post || 0).toFixed(1);
+            setGoalDisplay('sPostGoal', g.post || 0);
             setRateDisplay('sPostRate', 'sPostBar', t.post || 0, getTarget(g.post || 0));
-            setDailyDisplay('sPostDaily', postDaily, g.post || 0, t.post || 0);
+            setDailyDisplay('sPostDaily', postDaily, actualPostDaily, g.post || 0, t.post || 0);
 
             document.getElementById('sApoGet').textContent = t.apoGet;
-            document.getElementById('sApoGetGoal').textContent = getTarget(g.apoGet).toFixed(1);
+            setGoalDisplay('sApoGetGoal', g.apoGet);
             setRateDisplay('sApoGetRate', 'sApoGetBar', t.apoGet, getTarget(g.apoGet));
-            setDailyDisplay('sApoGetDaily', apoGetDaily, g.apoGet || 0, t.apoGet);
+            setDailyDisplay('sApoGetDaily', apoGetDaily, actualApoGetDaily, g.apoGet || 0, t.apoGet);
 
             document.getElementById('sApoExec').textContent = t.apoExec;
-            document.getElementById('sApoExecGoal').textContent = getTarget(g.apoExec).toFixed(1);
+            setGoalDisplay('sApoExecGoal', g.apoExec);
             setRateDisplay('sApoExecRate', 'sApoExecBar', t.apoExec, getTarget(g.apoExec));
-            setDailyDisplay('sApoExecDaily', apoExecDaily, g.apoExec || 0, t.apoExec);
+            setDailyDisplay('sApoExecDaily', apoExecDaily, actualApoExecDaily, g.apoExec || 0, t.apoExec);
 
             document.getElementById('sDoinGet').textContent = t.doinGet;
-            document.getElementById('sDoinGetGoal').textContent = getTarget(g.doinGet).toFixed(1);
+            setGoalDisplay('sDoinGetGoal', g.doinGet);
             setRateDisplay('sDoinGetRate', 'sDoinGetBar', t.doinGet, getTarget(g.doinGet));
-            setDailyDisplay('sDoinGetDaily', doinGetDaily, g.doinGet || 0, t.doinGet);
+            setDailyDisplay('sDoinGetDaily', doinGetDaily, actualDoinGetDaily, g.doinGet || 0, t.doinGet);
 
             document.getElementById('sDoinExec').textContent = t.doinExec;
-            document.getElementById('sDoinExecGoal').textContent = getTarget(g.doinExec).toFixed(1);
+            setGoalDisplay('sDoinExecGoal', g.doinExec);
             setRateDisplay('sDoinExecRate', 'sDoinExecBar', t.doinExec, getTarget(g.doinExec));
-            setDailyDisplay('sDoinExecDaily', doinExecDaily, g.doinExec || 0, t.doinExec);
+            setDailyDisplay('sDoinExecDaily', doinExecDaily, actualDoinExecDaily, g.doinExec || 0, t.doinExec);
 
             document.getElementById('sMendan').textContent = t.mendanGet;
-            document.getElementById('sMendanGoal').textContent = getTarget(g.mendan).toFixed(1);
+            setGoalDisplay('sMendanGoal', g.mendan);
             setRateDisplay('sMendanRate', 'sMendanBar', t.mendanGet, getTarget(g.mendan));
-            setDailyDisplay('sMendanDaily', mendanGetDaily, g.mendan || 0, t.mendanGet);
+            setDailyDisplay('sMendanDaily', mendanGetDaily, actualMendanGetDaily, g.mendan || 0, t.mendanGet);
 
             document.getElementById('sMendanExec').textContent = t.mendanExec;
-            document.getElementById('sMendanExecGoal').textContent = getTarget(g.mendanExec || 0).toFixed(1);
+            setGoalDisplay('sMendanExecGoal', g.mendanExec || 0);
             setRateDisplay('sMendanExecRate', 'sMendanExecBar', t.mendanExec, getTarget(g.mendanExec || 0));
-            setDailyDisplay('sMendanExecDaily', mendanExecDaily, g.mendanExec || 0, t.mendanExec);
+            setDailyDisplay('sMendanExecDaily', mendanExecDaily, actualMendanExecDaily, g.mendanExec || 0, t.mendanExec);
 
             document.getElementById('sSeiyaku').textContent = t.seiyaku;
-            document.getElementById('sSeiyakuGoal').textContent = getTarget(g.seiyaku).toFixed(1);
+            setGoalDisplay('sSeiyakuGoal', g.seiyaku);
             setRateDisplay('sSeiyakuRate', 'sSeiyakuBar', t.seiyaku, getTarget(g.seiyaku));
-            setDailyDisplay('sSeiyakuDaily', seiyakuDaily, g.seiyaku || 0, t.seiyaku);
+            setDailyDisplay('sSeiyakuDaily', seiyakuDaily, actualSeiyakuDaily, g.seiyaku || 0, t.seiyaku);
 
             // KPI自動計算
             document.getElementById('kMuchaku').textContent = pct(t.muchaku, t.apoExec);
@@ -2847,7 +3149,9 @@
             document.getElementById('rsNgBreakdown').innerHTML = ngBreakdownHtml;
             document.getElementById('rsNgTotal').textContent = `(${ngTotal}件)`;
 
-            // 残案件（メンバーでフィルタリング + 月表示対応）
+            // 残案件（Supabase連携時はスキップ）
+            if (supabaseCasesCache && supabaseCasesCache.length > 0) { renderSupabaseSummary(); }
+            else {
             const reviewData = getWeekData().review;
             let allCases = [];
             if (viewPeriod === 'month') {
@@ -2869,6 +3173,7 @@
                     const badge = memberName ? `<span style="font-size:9px;background:#6366f1;padding:1px 4px;border-radius:3px;margin-right:4px">${memberName}</span>` : '';
                     return `<div style="padding:4px;background:#0f172a;border-radius:4px;margin-bottom:4px">${badge}${c.date || '-'} ${c.customer || '未入力'} <span style="color:#64748b;font-size:11px">${c.closer || ''}</span></div>`;
                 }).join('');
+            } // Supabase連携 else ブロック終了
 
             // キャンセル（メンバーでフィルタリング + 理由表示 + 月表示対応）
             let allCancels = [];
@@ -3629,29 +3934,55 @@
             return reasons.counts && reasons.counts.some(c => c > 0);
         }
 
-        // 残案件
+        // 残案件（Supabase連携 + ローカル手動追加の両方を表示）
         function renderCases() {
+            let html = '';
+            let totalCount = 0;
+            let hasSupabase = supabaseCasesCache && supabaseCasesCache.length > 0;
+
+            // Supabase連携データを表示
+            if (hasSupabase) {
+                const cases = filterBySelectedMember(supabaseCasesCache);
+                totalCount += cases.length;
+                html += cases.map(c => {
+                    const st = STATUS_SHORT_MAP[c.status] || c.status;
+                    const date = new Date(c.created_at).toLocaleDateString('ja-JP', {month:'short',day:'numeric'});
+                    const closer = c.closer ? c.closer.name : '';
+                    return `<div class="case-item" style="opacity:0.85">
+                        <span style="font-size:10px;background:#3b82f6;color:white;padding:1px 6px;border-radius:4px;margin-right:4px;white-space:nowrap">${st}</span>
+                        <span style="flex:1;font-size:12px">${c.customer?.name || '不明'}</span>
+                        <span style="font-size:11px;color:#64748b">${c.user?.name || ''}</span>
+                        ${closer ? `<span style="font-size:11px;color:#64748b"> / ${closer}</span>` : ''}
+                        <span style="font-size:10px;color:#475569">${date}</span>
+                    </div>`;
+                }).join('');
+            }
+
+            // ローカル手動追加データを表示
             const allCases = getWeekData().review.cases || [];
-            // メンバーでフィルタリング（元のインデックスを保持）
             const filteredCases = allCases.map((c, i) => ({...c, _idx: i}))
                 .filter(c => selectedMember === 'all' || !c.memberId || c.memberId === selectedMember);
-            document.getElementById('sCasesCount').textContent = `(${filteredCases.length}件)`;
-            document.getElementById('caseList').innerHTML = filteredCases.length === 0 ? '<p style="color:#64748b;font-size:13px">残案件なし</p>' :
-                filteredCases.map(c => {
-                    const isEditable = !c.memberId || canEditMember(c.memberId);
-                    const memberName = c.memberId ? (data.members.find(m => m.id === c.memberId)?.name || '') : '';
-                    const memberBadge = selectedMember === 'all' && memberName ? `<span style="font-size:10px;background:#6366f1;padding:2px 6px;border-radius:4px;margin-right:4px">${memberName}</span>` : '';
-                    return `<div class="case-item" style="${isEditable ? '' : 'opacity:0.6'}">${memberBadge}<input type="text" value="${c.date||''}" placeholder="日付" onchange="updateCase(${c._idx},'date',this.value)" ${isEditable ? '' : 'disabled'}><input type="text" value="${c.customer||''}" placeholder="顧客名" onchange="updateCase(${c._idx},'customer',this.value)" ${isEditable ? '' : 'disabled'}><input type="text" value="${c.closer||''}" placeholder="クローザー" onchange="updateCase(${c._idx},'closer',this.value)" ${isEditable ? '' : 'disabled'}><button class="btn btn-danger btn-sm" onclick="deleteCase(${c._idx})" ${isEditable ? '' : 'disabled'}>×</button></div>`;
-                }).join('');
+            totalCount += filteredCases.length;
+            html += filteredCases.map(c => {
+                const isEditable = !c.memberId || canEditMember(c.memberId);
+                const memberName = c.memberId ? (data.members.find(m => m.id === c.memberId)?.name || '') : '';
+                const memberBadge = selectedMember === 'all' && memberName ? `<span style="font-size:10px;background:#6366f1;padding:2px 6px;border-radius:4px;margin-right:4px">${memberName}</span>` : '';
+                return `<div class="case-item" style="${isEditable ? '' : 'opacity:0.6'}">${memberBadge}<input type="text" value="${c.date||''}" placeholder="日付" onchange="updateCase(${c._idx},'date',this.value)" ${isEditable ? '' : 'disabled'}><input type="text" value="${c.customer||''}" placeholder="顧客名" onchange="updateCase(${c._idx},'customer',this.value)" ${isEditable ? '' : 'disabled'}><input type="text" value="${c.closer||''}" placeholder="クローザー" onchange="updateCase(${c._idx},'closer',this.value)" ${isEditable ? '' : 'disabled'}><button class="btn btn-danger btn-sm" onclick="deleteCase(${c._idx})" ${isEditable ? '' : 'disabled'}>×</button></div>`;
+            }).join('');
+
+            document.getElementById('sCasesCount').textContent = hasSupabase ? `(${totalCount}件 - アポ管理連携)` : `(${totalCount}件)`;
+            document.getElementById('caseList').innerHTML = html || '<p style="color:#64748b;font-size:13px">残案件なし</p>';
         }
         function addCase() {
             const currentUserId = getCurrentMemberId();
             if (!currentUserId) { alert('ユーザーを設定してください'); return; }
-            getWeekData().review.cases.push({ memberId: currentUserId });
+            const r = getWeekData().review;
+            if (!r.cases) r.cases = [];
+            r.cases.push({ memberId: currentUserId });
             saveData(); renderCases();
         }
-        function updateCase(i,k,v) { getWeekData().review.cases[i][k] = v; saveData(); }
-        function deleteCase(i) { getWeekData().review.cases.splice(i,1); saveData(); renderCases(); }
+        function updateCase(i,k,v) { const r = getWeekData().review; if (!r.cases) r.cases = []; r.cases[i][k] = v; saveData(); }
+        function deleteCase(i) { const r = getWeekData().review; if (!r.cases) r.cases = []; r.cases.splice(i,1); saveData(); renderCases(); }
 
         // キャンセル
         function renderCancels() {
@@ -3681,7 +4012,9 @@
         function addCancel() {
             const currentUserId = getCurrentMemberId();
             if (!currentUserId) { alert('ユーザーを設定してください'); return; }
-            getWeekData().review.cancels.push({ memberId: currentUserId });
+            const r = getWeekData().review;
+            if (!r.cancels) r.cancels = [];
+            r.cancels.push({ memberId: currentUserId });
             saveData(); renderCancels();
         }
         function updateCancel(i,k,v) { getWeekData().review.cancels[i][k] = v; saveData(); renderCancels(); }
@@ -5102,6 +5435,22 @@
             } catch (e) {
                 console.error('❌ 設定読み込みエラー:', e);
             }
+
+            // Change 6: 乖離チェックを実行（設定タブで選択中のメンバーを使用）
+            try {
+                const divergenceMember = (settingsSelectedMember && settingsSelectedMember !== 'all')
+                    ? settingsSelectedMember : selectedMember;
+                checkRatesDivergence(divergenceMember);
+            } catch (e) {
+                console.error('❌ 乖離チェックエラー:', e);
+            }
+
+            // Change 7: 月末自動保存プロンプト
+            try {
+                checkMonthEndRatePrompt();
+            } catch (e) {
+                console.error('❌ 月末プロンプトエラー:', e);
+            }
         }
 
         function onSettingsMemberChange() {
@@ -5116,6 +5465,9 @@
 
             // 設定を読み込み
             loadMemberSettings(settingsSelectedMember);
+
+            // 乖離チェックも更新
+            try { checkRatesDivergence(settingsSelectedMember); } catch(e) { console.error('乖離チェックエラー:', e); }
 
             // 選択したメンバーの名前を表示
             const hintEl = document.getElementById('settingsHint');
@@ -5741,6 +6093,7 @@
             if (s) {
                 data = JSON.parse(s);
                 if (!data.monthVideos) data.monthVideos = {};
+                if (!data.monthlyRates) data.monthlyRates = {};
                 if (!data.settings.budget) {
                     data.settings.budget = data.settings.weekly || { post: 56, apoGet: 50, apoExec: 46, doinGet: 7, doinExec: 4, mendan: 2, seiyaku: 1 };
                 }
@@ -6023,6 +6376,578 @@
 
             alert('ローカルデータをリセットしました。\n\nページをリロードします。');
             location.reload();
+        }
+
+        // ===========================================================
+        // Change 1 & 3: 月別パーセンテージ記録・取得機能
+        // ===========================================================
+
+        /**
+         * メンバーの指定月の全週データからトータルを計算する
+         * （calcMemberTotals と同様だが、任意の年月を指定可能）
+         */
+        function calcMemberTotalsForMonth(memberId, year, month) {
+            console.log(`[calcMemberTotalsForMonth] memberId=${memberId}, year=${year}, month=${month}`);
+            const t = {};
+            metrics.forEach(c => c.items.forEach(m => t[m.key] = 0));
+
+            const maxW = getMaxWeekNum(year, month);
+            for (let w = 1; w <= maxW; w++) {
+                const weekKey = `${year}-${month}-W${w}`;
+                const weekData = data.weeks[weekKey];
+                if (weekData && weekData.daily && weekData.daily[memberId]) {
+                    const d = weekData.daily[memberId];
+                    metrics.forEach(c => c.items.forEach(met => {
+                        t[met.key] += safeArraySum(d[met.key]);
+                    }));
+                }
+            }
+            console.log(`[calcMemberTotalsForMonth] 結果:`, JSON.stringify(t));
+            return t;
+        }
+
+        /**
+         * 指定メンバー・指定月の変換率を計算する
+         */
+        function calcRatesFromTotals(totals) {
+            const safeDiv = (a, b) => b > 0 ? a / b : 0;
+            const rates = {
+                apoGetRate: safeDiv(totals.apoGet, totals.post || 0),         // アポ獲得率 = アポ獲得/投稿
+                apoExecRate: safeDiv(totals.apoExec, totals.apoGet),           // アポ実施率 = アポ実施/アポ獲得
+                doinGetRate: safeDiv(totals.doinGet, totals.apoExec),          // 動員獲得率 = 動員獲得/アポ実施
+                doinExecRate: safeDiv(totals.doinExec, totals.doinGet),        // 動員実施率 = 動員実施/動員獲得
+                mendanExecRate: safeDiv(totals.mendanExec, totals.mendanGet),  // 面談実施率 = 面談実施/面談獲得
+                seiyakuRate: safeDiv(totals.seiyaku, totals.doinExec)          // 成約率 = 成約/動員実施
+            };
+            console.log(`[calcRatesFromTotals] 算出率:`, JSON.stringify(rates));
+            return rates;
+        }
+
+        /**
+         * Change 3: メンバーの月別パーセンテージをFirebaseに保存する
+         */
+        function saveMonthlyRates(memberId, monthKey) {
+            console.log(`[saveMonthlyRates] 開始: memberId=${memberId}, monthKey=${monthKey}`);
+
+            if (!memberId || memberId === 'all') {
+                console.error('[saveMonthlyRates] 無効なmemberId:', memberId);
+                return null;
+            }
+
+            // monthKeyからyear, monthを取得
+            const parts = monthKey.split('-');
+            const year = parseInt(parts[0]);
+            const month = parseInt(parts[1]);
+
+            // そのメンバーのそのの月の全データを集計
+            const totals = calcMemberTotalsForMonth(memberId, year, month);
+
+            // 変換率を計算
+            const rates = calcRatesFromTotals(totals);
+
+            // 保存データを構築
+            const rateData = {
+                apoGetRate: rates.apoGetRate,
+                apoExecRate: rates.apoExecRate,
+                doinGetRate: rates.doinGetRate,
+                doinExecRate: rates.doinExecRate,
+                mendanExecRate: rates.mendanExecRate,
+                seiyakuRate: rates.seiyakuRate,
+                savedAt: Date.now(),
+                totals: {
+                    post: totals.post || 0,
+                    apoGet: totals.apoGet || 0,
+                    apoExec: totals.apoExec || 0,
+                    doinGet: totals.doinGet || 0,
+                    doinExec: totals.doinExec || 0,
+                    mendanGet: totals.mendanGet || 0,
+                    mendanExec: totals.mendanExec || 0,
+                    seiyaku: totals.seiyaku || 0
+                }
+            };
+
+            // data.monthlyRatesに保存
+            if (!data.monthlyRates) data.monthlyRates = {};
+            if (!data.monthlyRates[memberId]) data.monthlyRates[memberId] = {};
+            data.monthlyRates[memberId][monthKey] = rateData;
+
+            console.log(`[saveMonthlyRates] 保存データ:`, JSON.stringify(rateData));
+
+            // Firebaseに保存
+            saveData();
+
+            return rateData;
+        }
+
+        /**
+         * Change 3: 過去2ヶ月の平均変換率を取得する
+         */
+        function getAvgPastRates(memberId) {
+            console.log(`[getAvgPastRates] 開始: memberId=${memberId}`);
+
+            if (!memberId || memberId === 'all') {
+                console.log('[getAvgPastRates] 無効なmemberId、null返却');
+                return null;
+            }
+
+            if (!data.monthlyRates || !data.monthlyRates[memberId]) {
+                console.log('[getAvgPastRates] monthlyRatesデータなし、null返却');
+                return null;
+            }
+
+            const memberRates = data.monthlyRates[memberId];
+            const monthKeys = Object.keys(memberRates).sort((a, b) => {
+                const [ay, am] = a.split('-').map(Number);
+                const [by, bm] = b.split('-').map(Number);
+                return (by * 12 + bm) - (ay * 12 + am); // 新しい順（年月を数値で比較）
+            });
+
+            // 現在の月キーを除外（記録済みでも当月は除外）
+            const currentMonthKey = getMonthKey();
+            const pastKeys = monthKeys.filter(k => k !== currentMonthKey);
+
+            if (pastKeys.length === 0) {
+                console.log('[getAvgPastRates] 過去データなし、null返却');
+                return null;
+            }
+
+            // 最大2ヶ月分取得
+            const keysToUse = pastKeys.slice(0, 2);
+            console.log(`[getAvgPastRates] 使用する月:`, keysToUse);
+
+            const rateKeys = ['apoGetRate', 'apoExecRate', 'doinGetRate', 'doinExecRate', 'mendanExecRate', 'seiyakuRate'];
+            const avgRates = {};
+
+            rateKeys.forEach(rk => {
+                let sum = 0;
+                let count = 0;
+                keysToUse.forEach(mk => {
+                    const val = memberRates[mk][rk];
+                    if (val !== undefined && val !== null && !isNaN(val)) {
+                        sum += val;
+                        count++;
+                    }
+                });
+                avgRates[rk] = count > 0 ? sum / count : 0;
+            });
+
+            console.log(`[getAvgPastRates] 平均率(${keysToUse.length}ヶ月分):`, JSON.stringify(avgRates));
+            return { rates: avgRates, monthsUsed: keysToUse.length, months: keysToUse };
+        }
+
+        // ===========================================================
+        // Change 2: 予算から自動計算 (x1.2)
+        // ===========================================================
+
+        function autoCalcGoals() {
+            console.log('[autoCalcGoals] 予算から目標を自動計算');
+
+            const budgetFields = [
+                { budget: 'bPost', goal: 'mPost' },
+                { budget: 'bApoGet', goal: 'mApoGet' },
+                { budget: 'bApoExec', goal: 'mApoExec' },
+                { budget: 'bDoinGet', goal: 'mDoinGet' },
+                { budget: 'bDoinExec', goal: 'mDoinExec' },
+                { budget: 'bMendan', goal: 'mMendan' },
+                { budget: 'bSeiyaku', goal: 'mSeiyaku' }
+            ];
+
+            budgetFields.forEach(({ budget, goal }) => {
+                const budgetEl = document.getElementById(budget);
+                const goalEl = document.getElementById(goal);
+                if (budgetEl && goalEl) {
+                    const budgetVal = parseFloat(budgetEl.value) || 0;
+                    const calculated = budgetVal * 1.2;
+                    // 小数点以下が.0でない場合は切り上げ
+                    const goalVal = (calculated % 1 === 0) ? calculated : Math.ceil(calculated);
+                    goalEl.value = goalVal;
+                    console.log(`[autoCalcGoals] ${budget}(${budgetVal}) x 1.2 = ${calculated} → ${goalVal}`);
+
+                    // ハイライトアニメーション
+                    goalEl.classList.remove('settings-updated');
+                    void goalEl.offsetWidth;
+                    goalEl.classList.add('settings-updated');
+                }
+            });
+
+            // 面談実施は面談獲得と同じ値を設定（面談は獲得のみ予算があるため）
+            const mendanGoal = document.getElementById('mMendan');
+            const mendanExecGoal = document.getElementById('mMendanExec');
+            if (mendanGoal && mendanExecGoal) {
+                mendanExecGoal.value = mendanGoal.value;
+            }
+
+            // 設定を保存
+            saveSettings();
+        }
+
+        // ===========================================================
+        // Change 4: 過去実績から目標自動設定
+        // ===========================================================
+
+        function autoSetTargetsFromRatesUI() {
+            console.log('[autoSetTargetsFromRatesUI] 開始');
+
+            // 現在選択中のメンバーを取得
+            const targetMember = (settingsSelectedMember && settingsSelectedMember !== 'all')
+                ? settingsSelectedMember
+                : selectedMember;
+
+            if (targetMember === 'all') {
+                alert('メンバーを選択してください。\n「全体」選択中は自動設定できません。');
+                return;
+            }
+
+            // 過去実績を取得
+            const pastData = getAvgPastRates(targetMember);
+            if (!pastData || !pastData.rates) {
+                alert('過去の実績データがありません。\n\n先に「今月の実績パーセンテージを記録」で過去月のデータを保存してください。');
+                return;
+            }
+
+            const rates = pastData.rates;
+            const memberName = data.members.find(m => m.id === targetMember)?.name || targetMember;
+
+            // 成約予算を入力から取得
+            const seiyakuBudget = parseInt(document.getElementById('bSeiyaku').value) || 0;
+            if (seiyakuBudget <= 0) {
+                alert('成約の予算を先に入力してください。');
+                return;
+            }
+
+            // 成約目標 = 予算 x 1.2
+            const seiyakuGoal = Math.ceil(seiyakuBudget * 1.2);
+
+            // 逆算して目標を自動設定
+            autoSetTargetsFromRates(targetMember, rates, seiyakuGoal);
+
+            console.log(`[autoSetTargetsFromRatesUI] ${memberName}の目標を過去${pastData.monthsUsed}ヶ月平均から自動設定完了`);
+        }
+
+        function autoSetTargetsFromRates(memberId, rates, seiyakuGoal) {
+            console.log(`[autoSetTargetsFromRates] memberId=${memberId}, seiyakuGoal=${seiyakuGoal}`);
+            console.log(`[autoSetTargetsFromRates] 使用率:`, JSON.stringify(rates));
+
+            // 逆算: 成約目標から各指標を求める
+            // 動員実施必要数 = ceil(成約目標 / 成約率)
+            const doinExecGoal = rates.seiyakuRate > 0
+                ? Math.ceil(seiyakuGoal / rates.seiyakuRate)
+                : seiyakuGoal;
+
+            // 動員獲得必要数 = ceil(動員実施必要数 / 動員実施率)
+            const doinGetGoal = rates.doinExecRate > 0
+                ? Math.ceil(doinExecGoal / rates.doinExecRate)
+                : doinExecGoal;
+
+            // アポ実施必要数 = ceil(動員獲得必要数 / 動員獲得率)
+            const apoExecGoal = rates.doinGetRate > 0
+                ? Math.ceil(doinGetGoal / rates.doinGetRate)
+                : doinGetGoal;
+
+            // アポ獲得必要数 = ceil(アポ実施必要数 / アポ実施率)
+            const apoGetGoal = rates.apoExecRate > 0
+                ? Math.ceil(apoExecGoal / rates.apoExecRate)
+                : apoExecGoal;
+
+            // 投稿必要数 = ceil(アポ獲得必要数 / アポ獲得率)
+            const postGoal = rates.apoGetRate > 0
+                ? Math.ceil(apoGetGoal / rates.apoGetRate)
+                : apoGetGoal;
+
+            console.log(`[autoSetTargetsFromRates] 逆算結果: post=${postGoal}, apoGet=${apoGetGoal}, apoExec=${apoExecGoal}, doinGet=${doinGetGoal}, doinExec=${doinExecGoal}, seiyaku=${seiyakuGoal}`);
+
+            // 目標フィールドに設定
+            const setField = (id, val) => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.value = val;
+                    el.classList.remove('settings-updated');
+                    void el.offsetWidth;
+                    el.classList.add('settings-updated');
+                }
+            };
+
+            // 面談も逆算（面談実施率から）
+            const mendanGoal = rates.mendanExecRate > 0
+                ? Math.ceil(doinExecGoal / rates.mendanExecRate)
+                : doinExecGoal;
+
+            setField('mPost', postGoal);
+            setField('mApoGet', apoGetGoal);
+            setField('mApoExec', apoExecGoal);
+            setField('mDoinGet', doinGetGoal);
+            setField('mDoinExec', doinExecGoal);
+            setField('mMendan', mendanGoal);
+            setField('mMendanExec', mendanGoal);
+            setField('mSeiyaku', seiyakuGoal);
+
+            // 確認メッセージ表示
+            const memberName = data.members.find(m => m.id === memberId)?.name || memberId;
+            const msg = `${memberName}の目標を自動設定しました:\n\n` +
+                `投稿: ${postGoal} (アポ獲得率: ${(rates.apoGetRate * 100).toFixed(1)}%)\n` +
+                `アポ獲得: ${apoGetGoal} (アポ実施率: ${(rates.apoExecRate * 100).toFixed(1)}%)\n` +
+                `アポ実施: ${apoExecGoal} (動員獲得率: ${(rates.doinGetRate * 100).toFixed(1)}%)\n` +
+                `動員獲得: ${doinGetGoal} (動員実施率: ${(rates.doinExecRate * 100).toFixed(1)}%)\n` +
+                `動員実施: ${doinExecGoal} (成約率: ${(rates.seiyakuRate * 100).toFixed(1)}%)\n` +
+                `成約: ${seiyakuGoal}`;
+            alert(msg);
+
+            // 設定を保存
+            saveSettings();
+        }
+
+        // ===========================================================
+        // Change 6: 乖離チェック（設定画面で目標vs実績の乖離を表示）
+        // ===========================================================
+
+        function checkRatesDivergence(memberId) {
+            console.log(`[checkRatesDivergence] 開始: memberId=${memberId}`);
+            const warningsEl = document.getElementById('ratesDivergenceWarnings');
+            if (!warningsEl) return;
+
+            if (!memberId || memberId === 'all') {
+                warningsEl.innerHTML = '';
+                return;
+            }
+
+            const pastData = getAvgPastRates(memberId);
+            if (!pastData || !pastData.rates) {
+                warningsEl.innerHTML = '<p style="font-size:12px;color:#64748b">過去の実績データがありません（乖離チェック不可）</p>';
+                return;
+            }
+
+            // 現在の目標から暗黙の変換率を計算
+            const monthKey = getMonthKey();
+            const goals = getMemberGoals(memberId);
+            const safeDiv = (a, b) => b > 0 ? a / b : 0;
+
+            const goalRates = {
+                apoGetRate: safeDiv(goals.apoGet, goals.post),
+                apoExecRate: safeDiv(goals.apoExec, goals.apoGet),
+                doinGetRate: safeDiv(goals.doinGet, goals.apoExec),
+                doinExecRate: safeDiv(goals.doinExec, goals.doinGet),
+                seiyakuRate: safeDiv(goals.seiyaku, goals.doinExec)
+            };
+
+            const actualRates = pastData.rates;
+            const labels = {
+                apoGetRate: 'アポ獲得率',
+                apoExecRate: 'アポ実施率',
+                doinGetRate: '動員獲得率',
+                doinExecRate: '動員実施率',
+                seiyakuRate: '成約率'
+            };
+
+            let html = '';
+            let hasWarnings = false;
+
+            for (const [key, label] of Object.entries(labels)) {
+                const goalRate = goalRates[key] * 100;
+                const actualRate = actualRates[key] * 100;
+
+                // 目標が0の場合はスキップ
+                if (goalRate === 0 && actualRate === 0) continue;
+
+                const divergence = Math.abs(goalRate - actualRate);
+
+                if (divergence > 25) {
+                    html += `<div style="padding:6px 10px;background:#7f1d1d;border:1px solid #ef4444;border-radius:6px;margin-bottom:4px;font-size:12px;color:#fca5a5">
+                        <strong>${label}:</strong> 目標${goalRate.toFixed(0)}% vs 実績${actualRate.toFixed(0)}% (${divergence.toFixed(0)}%乖離)
+                    </div>`;
+                    hasWarnings = true;
+                } else if (divergence > 10) {
+                    html += `<div style="padding:6px 10px;background:#78350f;border:1px solid #f59e0b;border-radius:6px;margin-bottom:4px;font-size:12px;color:#fde68a">
+                        <strong>${label}:</strong> 目標${goalRate.toFixed(0)}% vs 実績${actualRate.toFixed(0)}% (${divergence.toFixed(0)}%乖離)
+                    </div>`;
+                    hasWarnings = true;
+                }
+            }
+
+            if (hasWarnings) {
+                html = `<p style="font-size:12px;color:#94a3b8;margin-bottom:6px;font-weight:600">目標 vs 過去${pastData.monthsUsed}ヶ月平均の乖離チェック:</p>` + html;
+            }
+
+            warningsEl.innerHTML = html;
+            console.log(`[checkRatesDivergence] 乖離チェック完了、警告数: ${hasWarnings ? 'あり' : 'なし'}`);
+        }
+
+        // ===========================================================
+        // Change 7: 月末パーセンテージ記録UI
+        // ===========================================================
+
+        function previewAndSaveMonthlyRates() {
+            console.log('[previewAndSaveMonthlyRates] 開始');
+
+            const targetMember = (settingsSelectedMember && settingsSelectedMember !== 'all')
+                ? settingsSelectedMember
+                : selectedMember;
+
+            if (targetMember === 'all') {
+                // 全メンバー分を一括で保存
+                const monthKey = getMonthKey();
+                let results = [];
+                data.members.forEach(m => {
+                    const result = saveMonthlyRates(m.id, monthKey);
+                    if (result) {
+                        results.push({ name: m.name, rates: result });
+                    }
+                });
+
+                if (results.length === 0) {
+                    alert('記録できるデータがありません。');
+                    return;
+                }
+
+                // 結果を表示
+                let html = `<div style="padding:12px;background:#14532d;border:1px solid #22c55e;border-radius:8px">
+                    <p style="color:#86efac;font-weight:600;margin-bottom:8px">${monthKey} の実績パーセンテージを${results.length}名分記録しました</p>`;
+                results.forEach(r => {
+                    html += `<div style="margin-bottom:6px;padding:6px 8px;background:#0f172a;border-radius:4px">
+                        <strong style="color:#e2e8f0">${r.name}</strong>
+                        <span style="font-size:11px;color:#94a3b8;margin-left:8px">
+                            アポ獲得率:${(r.rates.apoGetRate*100).toFixed(1)}%
+                            アポ実施率:${(r.rates.apoExecRate*100).toFixed(1)}%
+                            動員獲得率:${(r.rates.doinGetRate*100).toFixed(1)}%
+                            動員実施率:${(r.rates.doinExecRate*100).toFixed(1)}%
+                            成約率:${(r.rates.seiyakuRate*100).toFixed(1)}%
+                        </span>
+                    </div>`;
+                });
+                html += `</div>`;
+
+                const resultEl = document.getElementById('monthlyRatesSaveResult');
+                if (resultEl) resultEl.innerHTML = html;
+                return;
+            }
+
+            // 個別メンバーの保存
+            const monthKey = getMonthKey();
+            const memberName = data.members.find(m => m.id === targetMember)?.name || targetMember;
+
+            // プレビューを先に表示
+            const parts = monthKey.split('-');
+            const totals = calcMemberTotalsForMonth(targetMember, parseInt(parts[0]), parseInt(parts[1]));
+            const rates = calcRatesFromTotals(totals);
+
+            const previewMsg = `${memberName} (${monthKey}) の実績パーセンテージ:\n\n` +
+                `投稿: ${totals.post || 0}\n` +
+                `アポ獲得: ${totals.apoGet || 0} (獲得率: ${(rates.apoGetRate*100).toFixed(1)}%)\n` +
+                `アポ実施: ${totals.apoExec || 0} (実施率: ${(rates.apoExecRate*100).toFixed(1)}%)\n` +
+                `動員獲得: ${totals.doinGet || 0} (獲得率: ${(rates.doinGetRate*100).toFixed(1)}%)\n` +
+                `動員実施: ${totals.doinExec || 0} (実施率: ${(rates.doinExecRate*100).toFixed(1)}%)\n` +
+                `面談獲得: ${totals.mendanGet || 0}\n` +
+                `面談実施: ${totals.mendanExec || 0} (実施率: ${(rates.mendanExecRate*100).toFixed(1)}%)\n` +
+                `成約: ${totals.seiyaku || 0} (成約率: ${(rates.seiyakuRate*100).toFixed(1)}%)\n\n` +
+                `この内容を記録しますか？`;
+
+            if (!confirm(previewMsg)) return;
+
+            const result = saveMonthlyRates(targetMember, monthKey);
+            if (result) {
+                const html = `<div style="padding:12px;background:#14532d;border:1px solid #22c55e;border-radius:8px">
+                    <p style="color:#86efac;font-weight:600">${memberName} (${monthKey}) の実績を記録しました</p>
+                    <p style="font-size:12px;color:#94a3b8;margin-top:4px">
+                        アポ獲得率:${(result.apoGetRate*100).toFixed(1)}%
+                        | アポ実施率:${(result.apoExecRate*100).toFixed(1)}%
+                        | 動員獲得率:${(result.doinGetRate*100).toFixed(1)}%
+                        | 動員実施率:${(result.doinExecRate*100).toFixed(1)}%
+                        | 面談実施率:${(result.mendanExecRate*100).toFixed(1)}%
+                        | 成約率:${(result.seiyakuRate*100).toFixed(1)}%
+                    </p>
+                </div>`;
+
+                const resultEl = document.getElementById('monthlyRatesSaveResult');
+                if (resultEl) resultEl.innerHTML = html;
+            }
+        }
+
+        function showPastRatesHistory() {
+            console.log('[showPastRatesHistory] 開始');
+            const el = document.getElementById('pastRatesHistory');
+            if (!el) return;
+
+            const targetMember = (settingsSelectedMember && settingsSelectedMember !== 'all')
+                ? settingsSelectedMember
+                : selectedMember;
+
+            if (!data.monthlyRates) {
+                el.innerHTML = '<p style="font-size:12px;color:#64748b">記録されたデータがありません</p>';
+                return;
+            }
+
+            let html = '<div style="padding:12px;background:#1e293b;border-radius:8px">';
+            html += '<h4 style="font-size:13px;color:#94a3b8;margin-bottom:8px">過去の記録一覧</h4>';
+
+            if (targetMember === 'all') {
+                // 全メンバーの記録を表示
+                data.members.forEach(m => {
+                    if (data.monthlyRates[m.id]) {
+                        html += `<div style="margin-bottom:8px"><strong style="color:#e2e8f0;font-size:13px">${m.name}</strong>`;
+                        const months = Object.keys(data.monthlyRates[m.id]).sort().reverse();
+                        months.forEach(mk => {
+                            const r = data.monthlyRates[m.id][mk];
+                            html += `<div style="font-size:11px;color:#94a3b8;padding:2px 0 2px 12px">
+                                ${mk}: アポ獲得${(r.apoGetRate*100).toFixed(1)}% | アポ実施${(r.apoExecRate*100).toFixed(1)}% | 動員獲得${(r.doinGetRate*100).toFixed(1)}% | 動員実施${(r.doinExecRate*100).toFixed(1)}% | 成約${(r.seiyakuRate*100).toFixed(1)}%
+                            </div>`;
+                        });
+                        html += `</div>`;
+                    }
+                });
+            } else {
+                // 個別メンバー
+                const memberName = data.members.find(m => m.id === targetMember)?.name || targetMember;
+                html += `<p style="color:#e2e8f0;font-size:13px;margin-bottom:6px">${memberName}</p>`;
+                if (data.monthlyRates[targetMember]) {
+                    const months = Object.keys(data.monthlyRates[targetMember]).sort().reverse();
+                    months.forEach(mk => {
+                        const r = data.monthlyRates[targetMember][mk];
+                        html += `<div style="font-size:12px;color:#94a3b8;padding:4px 0;border-bottom:1px solid #334155">
+                            <strong>${mk}</strong>:
+                            投稿${r.totals?.post||0}
+                            → アポ獲得${r.totals?.apoGet||0} (${(r.apoGetRate*100).toFixed(1)}%)
+                            → アポ実施${r.totals?.apoExec||0} (${(r.apoExecRate*100).toFixed(1)}%)
+                            → 動員獲得${r.totals?.doinGet||0} (${(r.doinGetRate*100).toFixed(1)}%)
+                            → 動員実施${r.totals?.doinExec||0} (${(r.doinExecRate*100).toFixed(1)}%)
+                            → 成約${r.totals?.seiyaku||0} (${(r.seiyakuRate*100).toFixed(1)}%)
+                        </div>`;
+                    });
+                    if (months.length === 0) {
+                        html += '<p style="font-size:12px;color:#64748b">記録なし</p>';
+                    }
+                } else {
+                    html += '<p style="font-size:12px;color:#64748b">記録なし</p>';
+                }
+            }
+
+            html += '</div>';
+            el.innerHTML = html;
+        }
+
+        /**
+         * Change 7: 月末が近い場合の自動プロンプト表示
+         */
+        function checkMonthEndRatePrompt() {
+            const today = new Date();
+            const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+            const daysRemaining = daysInMonth - today.getDate();
+
+            const promptEl = document.getElementById('monthEndRatePrompt');
+            if (!promptEl) return;
+
+            // 月末7日以内
+            if (daysRemaining <= 7) {
+                // 今月の記録がまだない場合のみ表示
+                const currentMonthKey = getMonthKey();
+                const memberId = getCurrentMemberId();
+                if (memberId && data.monthlyRates && data.monthlyRates[memberId] && data.monthlyRates[memberId][currentMonthKey]) {
+                    // 既に記録済み
+                    promptEl.style.display = 'none';
+                } else {
+                    promptEl.style.display = 'block';
+                }
+            } else {
+                promptEl.style.display = 'none';
+            }
         }
 
         init();
