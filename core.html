@@ -2298,6 +2298,23 @@
             setupAuthListener();
         }
 
+        // ページ離脱時にdebounce中のFirebase保存を即座にフラッシュ
+        window.addEventListener('beforeunload', function() {
+            if (saveTimer) {
+                clearTimeout(saveTimer);
+                saveTimer = null;
+                doFirebaseSave();
+            }
+        });
+        // タブ切り替え時も同様にフラッシュ
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden && saveTimer) {
+                clearTimeout(saveTimer);
+                saveTimer = null;
+                doFirebaseSave();
+            }
+        });
+
         // 戻るボタンでページに戻った時は特に何もしない（onAuthStateChangedが管理）
         window.addEventListener('pageshow', function(event) {
             if (event.persisted && !currentAuthUser) {
@@ -6145,6 +6162,7 @@
         }
 
         function saveData() {
+            data.lastUpdated = Date.now();
             localStorage.setItem('salesPro_core', JSON.stringify(data));
             saveToFirebase();
         }
@@ -6341,6 +6359,14 @@
                 // 自分の書き込み中、または保存待ちの変更がある場合はスキップ
                 // （ユーザーが数値を変更した直後にFirebaseの古い値で上書きされるのを防ぐ）
                 if (isSaving || saveTimer) return;
+
+                // ローカルの方がFirebaseより新しい場合（ページ離脱前に保存が間に合わなかったケース）
+                if (data.lastUpdated && firebaseData.lastUpdated
+                    && data.lastUpdated > firebaseData.lastUpdated) {
+                    console.log('⚠️ ローカルの方が新しい → Firebaseに反映');
+                    saveToFirebase();
+                    return;
+                }
 
                 debugListenerCount++;
                 const now = new Date();

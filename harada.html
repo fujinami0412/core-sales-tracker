@@ -2298,6 +2298,24 @@
             setupAuthListener();
         }
 
+        // ページ離脱時にdebounce中のFirebase保存を即座にフラッシュ
+        // （未保存の変更がFirebaseに残らないようにする）
+        window.addEventListener('beforeunload', function() {
+            if (saveTimer) {
+                clearTimeout(saveTimer);
+                saveTimer = null;
+                doFirebaseSave();
+            }
+        });
+        // タブ切り替え時も同様にフラッシュ（バックグラウンドでタイマーが遅延するのを防ぐ）
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden && saveTimer) {
+                clearTimeout(saveTimer);
+                saveTimer = null;
+                doFirebaseSave();
+            }
+        });
+
         // 戻るボタンでページに戻った時は特に何もしない（onAuthStateChangedが管理）
         window.addEventListener('pageshow', function(event) {
             if (event.persisted && !currentAuthUser) {
@@ -6145,6 +6163,8 @@
         }
 
         function saveData() {
+            // ローカル変更のタイムスタンプを記録（Firebaseリスナーで新旧判定に使用）
+            data.lastUpdated = Date.now();
             localStorage.setItem('salesPro_harada', JSON.stringify(data));
             saveToFirebase();
         }
@@ -6345,6 +6365,15 @@
                 // 自分の書き込み中、または保存待ちの変更がある場合はスキップ
                 // （ユーザーが数値を変更した直後にFirebaseの古い値で上書きされるのを防ぐ）
                 if (isSaving || saveTimer) return;
+
+                // ローカルの方がFirebaseより新しい場合（ページ離脱前に保存が間に合わなかったケース）
+                // → ローカルデータをFirebaseに反映してこの受信はスキップ
+                if (data.lastUpdated && firebaseData.lastUpdated
+                    && data.lastUpdated > firebaseData.lastUpdated) {
+                    console.log('⚠️ ローカルの方が新しい (local:', data.lastUpdated, 'firebase:', firebaseData.lastUpdated, ') → Firebaseに反映');
+                    saveToFirebase();
+                    return;
+                }
 
                 debugListenerCount++;
                 const now = new Date();
