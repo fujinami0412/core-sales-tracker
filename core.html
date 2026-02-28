@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>コア施策ツール</title>
     <!-- Firebase SDK -->
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.8.0/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.8.0/firebase-auth-compat.js"></script>
     <script>
         // Firebase設定
         const firebaseConfig = {
@@ -22,6 +22,10 @@
         firebase.initializeApp(firebaseConfig);
         const database = firebase.database();
         const auth = firebase.auth();
+        // file://プロトコルでのIndexedDB問題を回避するため、永続化をlocalStorageに設定
+        auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(e => {
+            console.warn('Auth永続化設定エラー（file://では正常）:', e.message);
+        });
         const TEAM_ID = 'core';
     </script>
     <style>
@@ -864,9 +868,41 @@
     // メールマッピング: Supabase user_id → email
     let supabaseEmailMap = {}; // { supabase_user_id: email }
 
+    // アポ管理ツールのURL（localStorageで永続化、URLパラメータで上書き可能）
+    function getAppointmentManagerUrl() {
+        // URLパラメータ ?api_url=... で上書き
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('api_url')) {
+            localStorage.setItem('appointment_manager_url', params.get('api_url'));
+            return params.get('api_url');
+        }
+        // localStorage に保存済みのURL
+        const saved = localStorage.getItem('appointment_manager_url');
+        if (saved) return saved;
+        // デフォルト: localhostならローカル、それ以外は空（Supabase直接通信のみ）
+        if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+            return 'http://localhost:3000';
+        }
+        return ''; // 本番ではメールマッピングAPI不使用（名前ベースフォールバック）
+    }
+    const APPOINTMENT_MANAGER_URL = getAppointmentManagerUrl();
+
+    // アポ管理ツールのURL設定を変更する関数（設定UIから呼ばれる）
+    function setAppointmentManagerUrl(url) {
+        if (url) {
+            localStorage.setItem('appointment_manager_url', url.replace(/\/$/, ''));
+        } else {
+            localStorage.removeItem('appointment_manager_url');
+        }
+        location.reload();
+    }
+
     // アポ管理ツールからメールマッピングを取得
-    const APPOINTMENT_MANAGER_URL = 'http://localhost:3000';
     async function fetchEmailMapping() {
+        if (!APPOINTMENT_MANAGER_URL) {
+            console.log('アポ管理ツールURL未設定 → メールマッピングをスキップ（名前ベースにフォールバック）');
+            return;
+        }
         try {
             const res = await fetch(`${APPOINTMENT_MANAGER_URL}/api/email-mapping`);
             if (!res.ok) return;
@@ -1379,7 +1415,7 @@
                             <div class="kpi-item" style="padding:6px"><div class="label" style="font-size:8px">テスクロ率</div><div class="value" id="rsTestClose" style="font-size:13px">0%</div></div>
                             <div class="kpi-item" style="padding:6px"><div class="label" style="font-size:8px">オファー率</div><div class="value" id="rsOffer" style="font-size:13px">0%</div></div>
                             <div class="kpi-item" style="padding:6px"><div class="label" style="font-size:8px">動員率</div><div class="value" id="rsDoinRate" style="font-size:13px">0%</div></div>
-                            <div class="kpi-item" style="padding:6px"><div class="label" style="font-size:8px">成約率</div><div class="value" id="rsSeiyakuRate" style="font-size:13px">0%</div></div>
+                            <div class="kpi-item" style="padding:6px"><div class="label" style="font-size:8px">成約率</div><div class="value" id="rsSeiyakuRateKpi" style="font-size:13px">0%</div></div>
                         </div>
                     </div>
 
@@ -1613,6 +1649,31 @@
                 </div>
             </div>
 
+            <div class="section" style="background:#1e293b;border:1px solid #334155;padding:20px;border-radius:12px">
+                <h2 style="color:#6366f1">🔗 アポ管理ツール連携</h2>
+                <p style="font-size:12px;color:#94a3b8;margin-bottom:12px">
+                    Supabaseアポ管理ツールとの接続先URLを設定します。
+                    メールマッピング（ユーザー紐付け）に使用されます。
+                </p>
+                <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+                    <input type="text" id="apoManagerUrlInput"
+                        placeholder="例: https://your-app.vercel.app"
+                        style="flex:1;padding:8px 12px;background:#0f172a;border:1px solid #334155;color:#e2e8f0;border-radius:6px;font-size:13px"
+                    >
+                    <button class="btn" style="background:#6366f1;font-size:12px;white-space:nowrap" onclick="setAppointmentManagerUrl(document.getElementById('apoManagerUrlInput').value)">
+                        保存して再読込
+                    </button>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;font-size:12px">
+                    <span style="color:#94a3b8">現在の接続先:</span>
+                    <span id="currentApoManagerUrl" style="color:#22c55e;font-family:monospace"></span>
+                </div>
+                <p style="font-size:11px;color:#64748b;margin-top:8px">
+                    空にすると名前ベースのマッチングにフォールバックします。
+                    ローカル開発時は http://localhost:3000 が自動設定されます。
+                </p>
+            </div>
+
             <div class="section">
                 <h2>メンバー管理</h2>
                 <div id="memberList" style="margin-top:12px"></div>
@@ -1695,6 +1756,7 @@
                 <h2>データ管理</h2>
                 <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
                     <button class="btn btn-secondary" onclick="exportData()">全データエクスポート</button>
+                    <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)">
                     <button class="btn btn-secondary" onclick="document.getElementById('importFile').click()">データインポート</button>
                     <button class="btn btn-danger" onclick="clearData()">全データ削除</button>
                     <button class="btn btn-danger" onclick="resetLocalOnly()">ローカルデータをリセット</button>
@@ -1821,11 +1883,14 @@
             lastUpdated: null // タイムスタンプ（データ更新検知用）
         };
 
-        // 現在の日付から週番号を計算（土曜始まり、5週制）
+        // 現在の日付から週番号を計算（土曜始まり、getWeekDatesと整合）
         function calculateCurrentWeek(date) {
+            const year = date.getFullYear();
+            const month = date.getMonth() + 1;
             const day = date.getDate();
-            // 週1: 1-7, 週2: 8-14, 週3: 15-21, 週4: 22-28, 週5: 29-31
-            return Math.min(Math.ceil(day / 7), 5);
+            const firstDay = new Date(year, month - 1, 1);
+            const dow = (firstDay.getDay() + 1) % 7;
+            return Math.min(Math.ceil((day + dow) / 7), getMaxWeekNum(year, month));
         }
 
         // ページ状態をlocalStorageから復元
@@ -1914,7 +1979,7 @@
             const daysInMonth = new Date(year, month, 0).getDate();
             const firstDay = new Date(year, month - 1, 1);
             const dow = (firstDay.getDay() + 1) % 7;
-            return Math.ceil((daysInMonth + dow) / 7);
+            return Math.min(Math.ceil((daysInMonth + dow) / 7), 5);
         }
 
         // チームパスワード（新規登録時のゲート用）
@@ -1963,15 +2028,19 @@
                 await auth.signInWithEmailAndPassword(email, password);
                 // onAuthStateChanged が処理を引き継ぐ
             } catch (err) {
-                console.error('ログインエラー:', err);
+                console.error('ログインエラー:', err.code, err.message, err);
                 const msgs = {
                     'auth/user-not-found': 'アカウントが見つかりません',
                     'auth/wrong-password': 'パスワードが正しくありません',
                     'auth/invalid-email': 'メールアドレスの形式が正しくありません',
                     'auth/too-many-requests': 'ログイン試行が多すぎます。しばらく待ってください',
-                    'auth/invalid-credential': 'メールアドレスまたはパスワードが正しくありません'
+                    'auth/invalid-credential': 'メールアドレスまたはパスワードが正しくありません',
+                    'auth/invalid-login-credentials': 'メールアドレスまたはパスワードが正しくありません',
+                    'auth/network-request-failed': 'ネットワークエラーです。インターネット接続を確認してください',
+                    'auth/user-disabled': 'このアカウントは無効化されています',
+                    'auth/operation-not-allowed': 'メール/パスワードログインが無効です。管理者に連絡してください'
                 };
-                showAuthError(msgs[err.code] || 'ログインエラー: ' + err.message);
+                showAuthError(msgs[err.code] || 'ログインエラー: ' + (err.code || '') + ' ' + err.message);
                 btn.disabled = false; btn.textContent = 'ログイン';
             }
         }
@@ -1990,13 +2059,15 @@
                 await auth.createUserWithEmailAndPassword(email, password);
                 // onAuthStateChanged が処理を引き継ぐ
             } catch (err) {
-                console.error('新規登録エラー:', err);
+                console.error('新規登録エラー:', err.code, err.message, err);
                 const msgs = {
                     'auth/email-already-in-use': 'このメールアドレスは既に登録されています',
                     'auth/invalid-email': 'メールアドレスの形式が正しくありません',
-                    'auth/weak-password': 'パスワードが弱すぎます（6文字以上）'
+                    'auth/weak-password': 'パスワードが弱すぎます（6文字以上）',
+                    'auth/network-request-failed': 'ネットワークエラーです。インターネット接続を確認してください',
+                    'auth/operation-not-allowed': 'メール/パスワード登録が無効です。管理者に連絡してください'
                 };
-                showAuthError(msgs[err.code] || '登録エラー: ' + err.message);
+                showAuthError(msgs[err.code] || '登録エラー: ' + (err.code || '') + ' ' + err.message);
                 btn.disabled = false; btn.textContent = '新規登録';
             }
         }
@@ -2004,6 +2075,11 @@
         async function handleLogout() {
             if (!confirm('ログアウトしますか？')) return;
             try {
+                // Firebaseリスナーを解除
+                if (firebaseInitialized) {
+                    database.ref('teams/' + TEAM_ID).off();
+                    firebaseInitialized = false;
+                }
                 await auth.signOut();
                 currentAuthUser = null;
                 currentMemberId = null;
@@ -2154,6 +2230,7 @@
                 if (user) {
                     // ログイン済み
                     currentAuthUser = user;
+                    console.log('認証成功:', user.email, user.uid);
                     showAuthLoading();
                     loadData();
                     // Firebaseから最新データを取得してからメンバー紐付けを行う
@@ -2165,13 +2242,18 @@
                                 data.members = Array.isArray(fbData.members) ? fbData.members : Object.values(fbData.members);
                             }
                             if (fbData.accounts) data.accounts = Array.isArray(fbData.accounts) ? fbData.accounts : Object.values(fbData.accounts);
-                            if (fbData.settings) data.settings = fbData.settings;
+                            if (fbData.settings) deepMerge(data.settings, fbData.settings);
                             if (fbData.weeks) data.weeks = fbData.weeks;
                             if (fbData.monthVideos) data.monthVideos = fbData.monthVideos;
+                            if (fbData.monthlyRates) data.monthlyRates = fbData.monthlyRates;
+                            if (fbData.deletedMembers) {
+                                data.deletedMembers = Array.isArray(fbData.deletedMembers) ? fbData.deletedMembers : Object.values(fbData.deletedMembers);
+                            }
                         }
                     } catch (e) {
                         console.error('初回データ取得エラー:', e);
                     }
+                    try {
                     const hasMapping = await loadUserMap();
                     if (hasMapping) {
                         // マッピングあり → アプリ表示
@@ -2182,6 +2264,11 @@
                     } else {
                         // マッピングなし → メンバー紐付け画面
                         showMemberLinkForm();
+                    }
+                    } catch (e) {
+                        console.error('ログイン後の初期化エラー:', e);
+                        showAuthError('初期化エラー: ' + e.message);
+                        showLoginForm();
                     }
                 } else {
                     // 未ログイン → ログイン画面
@@ -2456,7 +2543,7 @@
             if (currentWeekNum < 1) {
                 currentMonth--;
                 if (currentMonth < 1) { currentMonth = 12; currentYear--; }
-                currentWeekNum = 5;
+                currentWeekNum = getMaxWeekNum(currentYear, currentMonth);
             }
             savePageState();
             updateWeekLabel(); renderAll(); applySeasonalBackground();
@@ -2465,7 +2552,8 @@
         function nextWeek() {
             saveAll();
             currentWeekNum++;
-            if (currentWeekNum > 5) {
+            const maxWeek = getMaxWeekNum(currentYear, currentMonth);
+            if (currentWeekNum > maxWeek) {
                 currentMonth++;
                 if (currentMonth > 12) { currentMonth = 1; currentYear++; }
                 currentWeekNum = 1;
@@ -2661,7 +2749,7 @@
 
             // 今日までに達成すべき目標を計算（使える日数 = 月末日数 - 3）
             const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
-            const effectiveDays = daysInMonth - 3; // 使える日数
+            const effectiveDays = Math.max(daysInMonth - 3, 1); // 使える日数（最低1）
             const today = new Date();
             const isCurrentMonth = (today.getFullYear() === currentYear && today.getMonth() + 1 === currentMonth);
             const currentDay = isCurrentMonth ? today.getDate() : effectiveDays;
@@ -2722,7 +2810,7 @@
 
             const mendanGetDaily = directDaily(g.mendan || 0, t.mendanGet);
 
-            const mendanExecChain = planRates.mendanExec > 0 ? mendanGetDaily / planRates.mendanExec : 0;
+            const mendanExecChain = mendanGetDaily * planRates.mendanExec;
             const mendanExecDaily = Math.max(directDaily(g.mendanExec || 0, t.mendanExec), mendanExecChain);
 
             // ===== 実績ベース: 実際のデータの転換率を使って逆算 =====
@@ -2757,7 +2845,7 @@
 
                 actualMendanGetDaily = directDaily(g.mendan || 0, t.mendanGet);
 
-                const actMendanExecChain = rates.mendanExec > 0 ? actualMendanGetDaily / rates.mendanExec : 0;
+                const actMendanExecChain = actualMendanGetDaily * rates.mendanExec;
                 actualMendanExecDaily = Math.max(directDaily(g.mendanExec || 0, t.mendanExec), actMendanExecChain);
             }
 
@@ -2808,28 +2896,28 @@
             setDailyDisplay('sPostDaily', postDaily, actualPostDaily, g.post || 0, t.post || 0);
 
             document.getElementById('sApoGet').textContent = t.apoGet;
-            setGoalDisplay('sApoGetGoal', g.apoGet);
-            setRateDisplay('sApoGetRate', 'sApoGetBar', t.apoGet, getTarget(g.apoGet));
+            setGoalDisplay('sApoGetGoal', g.apoGet || 0);
+            setRateDisplay('sApoGetRate', 'sApoGetBar', t.apoGet, getTarget(g.apoGet || 0));
             setDailyDisplay('sApoGetDaily', apoGetDaily, actualApoGetDaily, g.apoGet || 0, t.apoGet);
 
             document.getElementById('sApoExec').textContent = t.apoExec;
-            setGoalDisplay('sApoExecGoal', g.apoExec);
-            setRateDisplay('sApoExecRate', 'sApoExecBar', t.apoExec, getTarget(g.apoExec));
+            setGoalDisplay('sApoExecGoal', g.apoExec || 0);
+            setRateDisplay('sApoExecRate', 'sApoExecBar', t.apoExec, getTarget(g.apoExec || 0));
             setDailyDisplay('sApoExecDaily', apoExecDaily, actualApoExecDaily, g.apoExec || 0, t.apoExec);
 
             document.getElementById('sDoinGet').textContent = t.doinGet;
-            setGoalDisplay('sDoinGetGoal', g.doinGet);
-            setRateDisplay('sDoinGetRate', 'sDoinGetBar', t.doinGet, getTarget(g.doinGet));
+            setGoalDisplay('sDoinGetGoal', g.doinGet || 0);
+            setRateDisplay('sDoinGetRate', 'sDoinGetBar', t.doinGet, getTarget(g.doinGet || 0));
             setDailyDisplay('sDoinGetDaily', doinGetDaily, actualDoinGetDaily, g.doinGet || 0, t.doinGet);
 
             document.getElementById('sDoinExec').textContent = t.doinExec;
-            setGoalDisplay('sDoinExecGoal', g.doinExec);
-            setRateDisplay('sDoinExecRate', 'sDoinExecBar', t.doinExec, getTarget(g.doinExec));
+            setGoalDisplay('sDoinExecGoal', g.doinExec || 0);
+            setRateDisplay('sDoinExecRate', 'sDoinExecBar', t.doinExec, getTarget(g.doinExec || 0));
             setDailyDisplay('sDoinExecDaily', doinExecDaily, actualDoinExecDaily, g.doinExec || 0, t.doinExec);
 
             document.getElementById('sMendan').textContent = t.mendanGet;
-            setGoalDisplay('sMendanGoal', g.mendan);
-            setRateDisplay('sMendanRate', 'sMendanBar', t.mendanGet, getTarget(g.mendan));
+            setGoalDisplay('sMendanGoal', g.mendan || 0);
+            setRateDisplay('sMendanRate', 'sMendanBar', t.mendanGet, getTarget(g.mendan || 0));
             setDailyDisplay('sMendanDaily', mendanGetDaily, actualMendanGetDaily, g.mendan || 0, t.mendanGet);
 
             document.getElementById('sMendanExec').textContent = t.mendanExec;
@@ -2838,8 +2926,8 @@
             setDailyDisplay('sMendanExecDaily', mendanExecDaily, actualMendanExecDaily, g.mendanExec || 0, t.mendanExec);
 
             document.getElementById('sSeiyaku').textContent = t.seiyaku;
-            setGoalDisplay('sSeiyakuGoal', g.seiyaku);
-            setRateDisplay('sSeiyakuRate', 'sSeiyakuBar', t.seiyaku, getTarget(g.seiyaku));
+            setGoalDisplay('sSeiyakuGoal', g.seiyaku || 0);
+            setRateDisplay('sSeiyakuRate', 'sSeiyakuBar', t.seiyaku, getTarget(g.seiyaku || 0));
             setDailyDisplay('sSeiyakuDaily', seiyakuDaily, actualSeiyakuDaily, g.seiyaku || 0, t.seiyaku);
 
             // KPI自動計算
@@ -3009,11 +3097,17 @@
 
             // 目標計算（使える日数 = 月末日数 - 3）
             const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
-            const effectiveDays = daysInMonth - 3;
+            const effectiveDays = Math.max(daysInMonth - 3, 1);
             const today = new Date();
             const currentDay = (today.getFullYear() === currentYear && today.getMonth() + 1 === currentMonth)
                 ? today.getDate() : effectiveDays;
-            const getTarget = (monthlyGoal) => Math.ceil((monthlyGoal || 0) / effectiveDays * Math.min(currentDay, effectiveDays));
+            const getTarget = (monthlyGoal) => {
+                if (viewPeriod === 'month') {
+                    return ((monthlyGoal || 0) / effectiveDays) * Math.min(currentDay, effectiveDays);
+                } else {
+                    return ((monthlyGoal || 0) / effectiveDays) * 7;
+                }
+            };
 
             // 数字とプログレスバー
             const metrics = [
@@ -3042,6 +3136,7 @@
             document.getElementById('rsOffer').textContent = pct(t.offer, t.apoExec);
             document.getElementById('rsDoinRate').textContent = pct(t.doinGet, t.apoExec);
             document.getElementById('rsSeiyakuRate').textContent = pct(t.seiyaku, t.doinExec);
+            document.getElementById('rsSeiyakuRateKpi').textContent = pct(t.seiyaku, t.doinExec);
 
             // 無着地内訳（メンバー別に日別データから集計）
             const members = selectedMember === 'all' ? data.members : data.members.filter(m => m.id === selectedMember);
@@ -3150,9 +3245,9 @@
             document.getElementById('rsNgTotal').textContent = `(${ngTotal}件)`;
 
             // 残案件（Supabase連携時はスキップ）
+            const reviewData = getWeekData().review;
             if (supabaseCasesCache && supabaseCasesCache.length > 0) { renderSupabaseSummary(); }
             else {
-            const reviewData = getWeekData().review;
             let allCases = [];
             if (viewPeriod === 'month') {
                 const maxW3 = getMaxWeekNum(currentYear, currentMonth);
@@ -3175,7 +3270,8 @@
                 }).join('');
             } // Supabase連携 else ブロック終了
 
-            // キャンセル（メンバーでフィルタリング + 理由表示 + 月表示対応）
+            // キャンセル（Supabase連携時はrenderSupabaseSummaryで描画済みなのでスキップ）
+            if (!(supabaseCancelsCache && supabaseCancelsCache.length > 0)) {
             let allCancels = [];
             if (viewPeriod === 'month') {
                 const maxW4 = getMaxWeekNum(currentYear, currentMonth);
@@ -3197,8 +3293,10 @@
                     const closerText = c.closer ? `<span style="color:#64748b;font-size:10px;margin-left:4px">[${c.closer}]</span>` : '';
                     return `<div style="padding:4px;background:#0f172a;border-radius:4px;margin-bottom:4px;border-left:2px solid #eab308">${badge}${c.date || '-'} ${c.customer || '未入力'}${closerText} <span style="color:#eab308;font-size:11px">${c.reason || ''}</span></div>`;
                 }).join('');
+            } // Supabaseキャンセル else ブロック終了
 
-            // 動員後無着地（メンバーでフィルタリング + 月表示対応）
+            // 動員後無着地（Supabase連携時はrenderSupabaseSummaryで描画済みなのでスキップ）
+            if (!(supabasePostMobCache && supabasePostMobCache.length > 0)) {
             let allDoinMuchaku = [];
             if (viewPeriod === 'month') {
                 const maxW5 = getMaxWeekNum(currentYear, currentMonth);
@@ -3220,6 +3318,7 @@
                     const closerText = item.closer ? `<span style="color:#64748b;font-size:10px;margin-left:4px">[${item.closer}]</span>` : '';
                     return `<div style="padding:4px;background:#0f172a;border-radius:4px;margin-bottom:4px;border-left:2px solid #ef4444">${badge}${item.date || '-'} ${item.customer || '未入力'}${closerText} <span style="color:#ef4444">${item.reason || ''}</span></div>`;
                 }).join('');
+            } // Supabase動員後無着地 else ブロック終了
 
             // サイドバー用グラフを描画
             renderReviewCharts();
@@ -3369,7 +3468,7 @@
 
         function getChartData(metricKey, monthlyGoal) {
             const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
-            const effectiveDays = daysInMonth - 3; // 使える日数
+            const effectiveDays = Math.max(daysInMonth - 3, 1); // 使える日数（最低1）
             let actualData = [];
             let targetData = [];
             let labels = [];
@@ -3582,7 +3681,7 @@
                                 const hasReasons = hasMuchakuReasons(member.id, i);
                                 const btnStyle = arr[i] > 0 ? (hasReasons ? 'background:#22c55e;' : 'background:#eab308;') : 'background:#475569;opacity:0.5;';
                                 return `<div class="daily-cell" style="display:flex;gap:2px;align-items:center;padding:2px">
-                                    <input type="number" value="${arr[i]}" min="0" style="width:35px" ${disabledAttr} onchange="updateDaily('${member.id}','${m.key}',${i},this.value)">
+                                    <input type="number" value="${arr[i]}" min="0" style="width:35px" ${disabledAttr} onchange="updateDaily('${member.id}','${m.key}',${i},this.value,event)">
                                     <button onclick="openMuchakuModal('${member.id}',${i},'${dateLabel}')" ${disabledAttr} style="padding:2px 6px;border:none;border-radius:4px;cursor:pointer;font-size:10px;color:white;${btnStyle}" title="理由を記録">?</button>
                                 </div>`;
                             }).join('');
@@ -3595,13 +3694,13 @@
                                 const hasReasons = hasNgReasons(member.id, i);
                                 const btnStyle = arr[i] > 0 ? (hasReasons ? 'background:#22c55e;' : 'background:#eab308;') : 'background:#475569;opacity:0.5;';
                                 return `<div class="daily-cell" style="display:flex;gap:2px;align-items:center;padding:2px">
-                                    <input type="number" value="${arr[i]}" min="0" style="width:35px" ${disabledAttr} onchange="updateDaily('${member.id}','${m.key}',${i},this.value)">
+                                    <input type="number" value="${arr[i]}" min="0" style="width:35px" ${disabledAttr} onchange="updateDaily('${member.id}','${m.key}',${i},this.value,event)">
                                     <button onclick="openNgModal('${member.id}',${i},'${dateLabel}')" ${disabledAttr} style="padding:2px 6px;border:none;border-radius:4px;cursor:pointer;font-size:10px;color:white;${btnStyle}" title="NG理由を記録">?</button>
                                 </div>`;
                             }).join('');
                             html += `<div class="daily-cell total">${total}</div></div>`;
                         } else {
-                            html += `<div class="daily-row sub"><div class="daily-cell label">${m.label}</div>${[0,1,2,3,4,5,6].map(i => `<div class="daily-cell"><input type="number" value="${arr[i]}" min="0" ${disabledAttr} onchange="updateDaily('${member.id}','${m.key}',${i},this.value)"></div>`).join('')}<div class="daily-cell total">${total}</div></div>`;
+                            html += `<div class="daily-row sub"><div class="daily-cell label">${m.label}</div>${[0,1,2,3,4,5,6].map(i => `<div class="daily-cell"><input type="number" value="${arr[i]}" min="0" ${disabledAttr} onchange="updateDaily('${member.id}','${m.key}',${i},this.value,event)"></div>`).join('')}<div class="daily-cell total">${total}</div></div>`;
                         }
                     });
                 });
@@ -3670,7 +3769,7 @@
             const weekData = data.weeks[weekKey];
             if (weekData && weekData.daily && weekData.daily[memberId]) {
                 const arr = weekData.daily[memberId][metricKey];
-                if (arr) return (Array.isArray(arr) ? arr : Object.values(arr))[dayOfWeek] || 0;
+                if (arr) return arr[dayOfWeek] || 0;
             }
             return 0;
         }
@@ -3694,19 +3793,26 @@
                 metrics.forEach(c => c.items.forEach(m => { data.weeks[weekKey].daily[memberId][m.key] = [0,0,0,0,0,0,0]; }));
             }
 
-            data.weeks[weekKey].daily[memberId][metricKey][dayOfWeek] = parseInt(value) || 0;
+            data.weeks[weekKey].daily[memberId][metricKey][dayOfWeek] = parseInt(value, 10) || 0;
             saveData();
             renderSummary();
             renderMemberTable();
         }
 
-        function updateDaily(memberId, key, idx, val) {
-            getMemberDaily(memberId)[key][idx] = parseInt(val) || 0;
+        function updateDaily(memberId, key, idx, val, evt) {
+            getMemberDaily(memberId)[key][idx] = parseInt(val, 10) || 0;
             saveData();
             renderSummary();
             renderMemberTable();
             const total = getMemberDaily(memberId)[key].reduce((a,b) => a+b, 0);
-            event.target.closest('.daily-row').querySelector('.total').textContent = total;
+            const e = evt || window.event;
+            if (e && e.target) {
+                const row = e.target.closest('.daily-row');
+                if (row) {
+                    const totalEl = row.querySelector('.total');
+                    if (totalEl) totalEl.textContent = total;
+                }
+            }
         }
 
         function renderReview() {
@@ -3742,8 +3848,8 @@
             saveData();
         }
 
-        function updateMuchakuReason(i, v) { getWeekData().review.muchakuReasons[i] = parseInt(v)||0; saveData(); }
-        function updateNgReason(i, v) { getWeekData().review.ngReasons[i] = parseInt(v)||0; saveData(); }
+        function updateMuchakuReason(i, v) { getWeekData().review.muchakuReasons[i] = parseInt(v, 10)||0; saveData(); }
+        function updateNgReason(i, v) { getWeekData().review.ngReasons[i] = parseInt(v, 10)||0; saveData(); }
 
         // 日別無着地理由の管理
         let currentMuchakuMember = null;
@@ -3783,10 +3889,10 @@
         function updateMuchakuReasonTotal() {
             const inputs = document.querySelectorAll('.muchaku-reason-input');
             let total = 0;
-            inputs.forEach(inp => { total += parseInt(inp.value) || 0; });
+            inputs.forEach(inp => { total += parseInt(inp.value, 10) || 0; });
             document.getElementById('muchakuReasonTotal').textContent = total;
 
-            const target = parseInt(document.getElementById('muchakuTargetCount').textContent) || 0;
+            const target = parseInt(document.getElementById('muchakuTargetCount').textContent, 10) || 0;
             const totalEl = document.getElementById('muchakuReasonTotal');
             if (total === target) {
                 totalEl.style.color = '#22c55e';
@@ -3800,7 +3906,7 @@
         function saveMuchakuReasons() {
             const inputs = document.querySelectorAll('.muchaku-reason-input');
             const counts = [];
-            inputs.forEach(inp => { counts.push(parseInt(inp.value) || 0); });
+            inputs.forEach(inp => { counts.push(parseInt(inp.value, 10) || 0); });
             const otherNote = document.getElementById('muchakuOtherNote').value;
 
             const reasons = getMemberMuchakuReasons(currentMuchakuMember);
@@ -3877,10 +3983,10 @@
         function updateNgReasonTotal() {
             const inputs = document.querySelectorAll('.ng-reason-input');
             let total = 0;
-            inputs.forEach(inp => { total += parseInt(inp.value) || 0; });
+            inputs.forEach(inp => { total += parseInt(inp.value, 10) || 0; });
             document.getElementById('ngReasonTotal').textContent = total;
 
-            const target = parseInt(document.getElementById('ngTargetCount').textContent) || 0;
+            const target = parseInt(document.getElementById('ngTargetCount').textContent, 10) || 0;
             const totalEl = document.getElementById('ngReasonTotal');
             if (total === target) {
                 totalEl.style.color = '#22c55e';
@@ -3894,7 +4000,7 @@
         function saveNgReasons() {
             const inputs = document.querySelectorAll('.ng-reason-input');
             const counts = [];
-            inputs.forEach(inp => { counts.push(parseInt(inp.value) || 0); });
+            inputs.forEach(inp => { counts.push(parseInt(inp.value, 10) || 0); });
             const otherNote = document.getElementById('ngOtherNote').value;
 
             const reasons = getMemberNgReasons(currentNgMember);
@@ -3981,7 +4087,7 @@
             r.cases.push({ memberId: currentUserId });
             saveData(); renderCases();
         }
-        function updateCase(i,k,v) { const r = getWeekData().review; if (!r.cases) r.cases = []; r.cases[i][k] = v; saveData(); }
+        function updateCase(i,k,v) { const r = getWeekData().review; if (!r.cases) r.cases = []; r.cases[i][k] = v; saveData(); renderCases(); }
         function deleteCase(i) { const r = getWeekData().review; if (!r.cases) r.cases = []; r.cases.splice(i,1); saveData(); renderCases(); }
 
         // キャンセル
@@ -4017,8 +4123,8 @@
             r.cancels.push({ memberId: currentUserId });
             saveData(); renderCancels();
         }
-        function updateCancel(i,k,v) { getWeekData().review.cancels[i][k] = v; saveData(); renderCancels(); }
-        function deleteCancel(i) { getWeekData().review.cancels.splice(i,1); saveData(); renderCancels(); }
+        function updateCancel(i,k,v) { const r = getWeekData().review; if (!r.cancels) r.cancels = []; r.cancels[i][k] = v; saveData(); renderCancels(); }
+        function deleteCancel(i) { const r = getWeekData().review; if (!r.cancels) return; r.cancels.splice(i,1); saveData(); renderCancels(); }
 
         // 動員後無着地
         function renderDoinMuchaku() {
@@ -4066,6 +4172,7 @@
         }
         function deleteDoinMuchaku(i) {
             const r = getWeekData().review;
+            if (!r.doinMuchakuList) return;
             r.doinMuchakuList.splice(i, 1);
             saveData();
             renderDoinMuchaku();
@@ -4375,13 +4482,14 @@
 
             container.innerHTML = stages.map((stage, i) => {
                 const widthPct = Math.max((stage.value / maxValue) * 100, 5);
-                const convRate = i > 0 && stages[i-1].value > 0 ? Math.round((stage.value / stages[i-1].value) * 100) : 100;
+                const convRate = i > 0 && stages[i-1].value > 0 ? Math.round((stage.value / stages[i-1].value) * 100) : 0;
+                const convDisplay = i > 0 ? (stages[i-1].value > 0 ? convRate + '%' : '-') : '';
                 return `<div style="display:flex;align-items:center;gap:8px">
                     <div style="width:70px;font-size:11px;color:#94a3b8">${stage.label}</div>
                     <div style="flex:1;height:24px;background:#1e293b;border-radius:4px;overflow:hidden;position:relative">
                         <div style="width:${widthPct}%;height:100%;background:${stage.color};display:flex;align-items:center;justify-content:flex-end;padding-right:8px;font-size:11px;font-weight:600">${stage.value}</div>
                     </div>
-                    <div style="width:40px;font-size:10px;color:${convRate >= 50 ? '#22c55e' : convRate >= 30 ? '#eab308' : '#ef4444'}">${i > 0 ? convRate + '%' : ''}</div>
+                    <div style="width:40px;font-size:10px;color:${convRate >= 50 ? '#22c55e' : convRate >= 30 ? '#eab308' : '#ef4444'}">${convDisplay}</div>
                 </div>`;
             }).join('');
         }
@@ -4454,7 +4562,7 @@
                 }
             });
 
-            getAccountData(accId)[key][idx] = parseInt(val) || 0;
+            getAccountData(accId)[key][idx] = parseInt(val, 10) || 0;
             saveData();
             renderInstagram();
 
@@ -4712,6 +4820,7 @@
             a.href = URL.createObjectURL(blob);
             a.download = `日報_${currentYear}年${currentMonth}月_第${currentWeekNum}週.csv`;
             a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 1000);
         }
 
         // 動画URL専用CSVインポート（日付,URL形式）
@@ -4842,8 +4951,8 @@
                         // 日付をパース (M/D形式)
                         const dateParts = (dateStr || '').trim().split('/');
                         if (dateParts.length !== 2) continue;
-                        const month = parseInt(dateParts[0]);
-                        const day = parseInt(dateParts[1]);
+                        const month = parseInt(dateParts[0], 10);
+                        const day = parseInt(dateParts[1], 10);
                         if (isNaN(month) || isNaN(day)) continue;
 
                         const dateObj = new Date(currentYear, month - 1, day);
@@ -4956,6 +5065,7 @@
             a.href = URL.createObjectURL(blob);
             a.download = `日別数字_${currentYear}年${currentMonth}月_第${currentWeekNum}週.csv`;
             a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 1000);
         }
 
         // 月間CSVインポート（独立選抜数字シート形式）
@@ -5063,7 +5173,7 @@
 
                         // 1日〜31日のデータ（4列目〜34列目、インデックス3〜33）
                         for (let day = 1; day <= 31; day++) {
-                            const val = parseInt(row[2 + day]) || 0;
+                            const val = parseInt(row[2 + day], 10) || 0;
 
                             // この日付が何週目か計算
                             const date = new Date(year, month - 1, day);
@@ -5073,7 +5183,7 @@
                             const dow = (firstDay.getDay() + 1) % 7; // 土曜始まり
                             const weekNum = Math.ceil((day + dow) / 7);
 
-                            // 曜日インデックス（月=0, 日=6）
+                            // 曜日インデックス（土=0, 日=1, 月=2, ..., 金=6）
                             const dayOfWeek = (date.getDay() + 1) % 7;
 
                             // 週データを取得・設定
@@ -5178,7 +5288,7 @@
                         }
 
                         // 全て0の行はスキップ（データ上書き防止）
-                        const allZero = Array.from({length: 7}, (_, idx) => parseInt(row[3 + idx]) || 0).every(v => v === 0);
+                        const allZero = Array.from({length: 7}, (_, idx) => parseInt(row[3 + idx], 10) || 0).every(v => v === 0);
                         if (allZero) {
                             skippedZeroCount++;
                             continue;
@@ -5187,7 +5297,7 @@
                         // 日別データを更新
                         const d = getMemberDaily(member.id);
                         for (let day = 0; day < 7; day++) {
-                            const val = parseInt(row[3 + day]) || 0;
+                            const val = parseInt(row[3 + day], 10) || 0;
                             d[metricKey][day] = val;
                         }
                         importCount++;
@@ -5259,8 +5369,8 @@
                     // データを整理
                     const accountData = {};
                     dataLines.forEach(line => {
-                        // CSV解析（ダブルクォート対応）
-                        const cols = line.match(/(".*?"|[^,]+)/g)?.map(c => c.replace(/^"|"$/g, '').trim()) || [];
+                        // CSV解析（空フィールド・ダブルクォート対応）
+                        const cols = parseCSVRow(line).map(c => c.trim());
                         if (cols.length < 14) return;
 
                         const accName = cols[0];
@@ -5284,18 +5394,18 @@
                                     seiyaku: [0,0,0,0,0,0,0]
                                 };
                             }
-                            accountData[accName].follow[dayIndex] = parseInt(cols[2]) || 0;
-                            accountData[accName].follower[dayIndex] = parseInt(cols[3]) || 0;
-                            accountData[accName].followCut[dayIndex] = parseInt(cols[4]) || 0;
-                            accountData[accName].followerCut[dayIndex] = parseInt(cols[5]) || 0;
-                            accountData[accName].dmSend[dayIndex] = parseInt(cols[6]) || 0;
-                            accountData[accName].dmReply[dayIndex] = parseInt(cols[7]) || 0;
-                            accountData[accName].dmOffer[dayIndex] = parseInt(cols[8]) || 0;
-                            accountData[accName].apoGet[dayIndex] = parseInt(cols[9]) || 0;
-                            accountData[accName].apoExec[dayIndex] = parseInt(cols[10]) || 0;
-                            accountData[accName].doinPlan[dayIndex] = parseInt(cols[11]) || 0;
-                            accountData[accName].doinExec[dayIndex] = parseInt(cols[12]) || 0;
-                            accountData[accName].seiyaku[dayIndex] = parseInt(cols[13]) || 0;
+                            accountData[accName].follow[dayIndex] = parseInt(cols[2], 10) || 0;
+                            accountData[accName].follower[dayIndex] = parseInt(cols[3], 10) || 0;
+                            accountData[accName].followCut[dayIndex] = parseInt(cols[4], 10) || 0;
+                            accountData[accName].followerCut[dayIndex] = parseInt(cols[5], 10) || 0;
+                            accountData[accName].dmSend[dayIndex] = parseInt(cols[6], 10) || 0;
+                            accountData[accName].dmReply[dayIndex] = parseInt(cols[7], 10) || 0;
+                            accountData[accName].dmOffer[dayIndex] = parseInt(cols[8], 10) || 0;
+                            accountData[accName].apoGet[dayIndex] = parseInt(cols[9], 10) || 0;
+                            accountData[accName].apoExec[dayIndex] = parseInt(cols[10], 10) || 0;
+                            accountData[accName].doinPlan[dayIndex] = parseInt(cols[11], 10) || 0;
+                            accountData[accName].doinExec[dayIndex] = parseInt(cols[12], 10) || 0;
+                            accountData[accName].seiyaku[dayIndex] = parseInt(cols[13], 10) || 0;
                         }
                     });
 
@@ -5376,6 +5486,14 @@
         function renderSettings() {
             console.log('=== renderSettings開始 ===');
             console.log('メンバー数:', data.members.length);
+
+            // アポ管理ツールURL表示を更新
+            try {
+                const urlInput = document.getElementById('apoManagerUrlInput');
+                const urlDisplay = document.getElementById('currentApoManagerUrl');
+                if (urlInput) urlInput.value = APPOINTMENT_MANAGER_URL || '';
+                if (urlDisplay) urlDisplay.textContent = APPOINTMENT_MANAGER_URL || '(未設定 - 名前ベースフォールバック)';
+            } catch(e) {}
 
             // ログイン情報表示を更新
             try {
@@ -5665,23 +5783,23 @@
             console.log('保存先:', targetMember);
 
             const budgetData = {
-                post: parseInt(document.getElementById('bPost').value) || 0,
-                apoGet: parseInt(document.getElementById('bApoGet').value) || 0,
-                apoExec: parseInt(document.getElementById('bApoExec').value) || 0,
-                doinGet: parseInt(document.getElementById('bDoinGet').value) || 0,
-                doinExec: parseInt(document.getElementById('bDoinExec').value) || 0,
-                mendan: parseInt(document.getElementById('bMendan').value) || 0,
-                seiyaku: parseInt(document.getElementById('bSeiyaku').value) || 0
+                post: parseInt(document.getElementById('bPost').value, 10) || 0,
+                apoGet: parseInt(document.getElementById('bApoGet').value, 10) || 0,
+                apoExec: parseInt(document.getElementById('bApoExec').value, 10) || 0,
+                doinGet: parseInt(document.getElementById('bDoinGet').value, 10) || 0,
+                doinExec: parseInt(document.getElementById('bDoinExec').value, 10) || 0,
+                mendan: parseInt(document.getElementById('bMendan').value, 10) || 0,
+                seiyaku: parseInt(document.getElementById('bSeiyaku').value, 10) || 0
             };
             const monthlyData = {
-                post: parseInt(document.getElementById('mPost').value) || 0,
-                apoGet: parseInt(document.getElementById('mApoGet').value) || 0,
-                apoExec: parseInt(document.getElementById('mApoExec').value) || 0,
-                doinGet: parseInt(document.getElementById('mDoinGet').value) || 0,
-                doinExec: parseInt(document.getElementById('mDoinExec').value) || 0,
-                mendan: parseInt(document.getElementById('mMendan').value) || 0,
-                mendanExec: parseInt(document.getElementById('mMendanExec').value) || 0,
-                seiyaku: parseInt(document.getElementById('mSeiyaku').value) || 0
+                post: parseInt(document.getElementById('mPost').value, 10) || 0,
+                apoGet: parseInt(document.getElementById('mApoGet').value, 10) || 0,
+                apoExec: parseInt(document.getElementById('mApoExec').value, 10) || 0,
+                doinGet: parseInt(document.getElementById('mDoinGet').value, 10) || 0,
+                doinExec: parseInt(document.getElementById('mDoinExec').value, 10) || 0,
+                mendan: parseInt(document.getElementById('mMendan').value, 10) || 0,
+                mendanExec: parseInt(document.getElementById('mMendanExec').value, 10) || 0,
+                seiyaku: parseInt(document.getElementById('mSeiyaku').value, 10) || 0
             };
 
             console.log('保存するbudget:', JSON.stringify(budgetData));
@@ -5701,13 +5819,13 @@
 
             // インスタ月間目標もメンバーごとに保存
             data.settings.memberSettings[targetMember][monthKey].instagram = {
-                send: parseInt(document.getElementById('igGoalSend').value) || 0,
-                reply: parseInt(document.getElementById('igGoalReply').value) || 0,
-                offer: parseInt(document.getElementById('igGoalOffer').value) || 0,
-                apoGet: parseInt(document.getElementById('igGoalApoGet').value) || 0,
-                apoExec: parseInt(document.getElementById('igGoalApoExec').value) || 0,
-                doinExec: parseInt(document.getElementById('igGoalDoinExec').value) || 0,
-                seiyaku: parseInt(document.getElementById('igGoalSeiyaku').value) || 0
+                send: parseInt(document.getElementById('igGoalSend').value, 10) || 0,
+                reply: parseInt(document.getElementById('igGoalReply').value, 10) || 0,
+                offer: parseInt(document.getElementById('igGoalOffer').value, 10) || 0,
+                apoGet: parseInt(document.getElementById('igGoalApoGet').value, 10) || 0,
+                apoExec: parseInt(document.getElementById('igGoalApoExec').value, 10) || 0,
+                doinExec: parseInt(document.getElementById('igGoalDoinExec').value, 10) || 0,
+                seiyaku: parseInt(document.getElementById('igGoalSeiyaku').value, 10) || 0
             };
             console.log('メンバー個別設定として保存しました:', targetMember, '月:', monthKey);
 
@@ -5759,9 +5877,10 @@
             msg += `■ メンバー一覧: ${memberList}\n\n`;
             msg += `■ memberSettings:\n`;
 
+            const monthKey = getMonthKey();
             for (const memberId in ms) {
                 const memberName = data.members.find(m => m.id === memberId)?.name || '不明';
-                const monthly = ms[memberId]?.monthly || {};
+                const monthly = ms[memberId]?.[monthKey]?.monthly || {};
                 const hasValue = Object.values(monthly).some(v => v > 0);
                 msg += `  ${memberName}: post=${monthly.post || 0}, apoGet=${monthly.apoGet || 0}, seiyaku=${monthly.seiyaku || 0} [${hasValue ? '値あり' : '値なし'}]\n`;
             }
@@ -5995,6 +6114,21 @@
                     return;
                 }
                 data = backup.data;
+                // 配列修復（Firebaseバックアップではオブジェクトに変換される場合がある）
+                if (data.members && !Array.isArray(data.members)) {
+                    data.members = Object.values(data.members);
+                }
+                if (!data.members) data.members = [];
+                if (data.accounts && !Array.isArray(data.accounts)) {
+                    data.accounts = Object.values(data.accounts);
+                }
+                if (!data.accounts) data.accounts = [];
+                if (!data.monthlyRates) data.monthlyRates = {};
+                if (!data.monthVideos) data.monthVideos = {};
+                if (data.deletedMembers && !Array.isArray(data.deletedMembers)) {
+                    data.deletedMembers = Object.values(data.deletedMembers);
+                }
+                if (!data.deletedMembers) data.deletedMembers = [];
                 saveData();
                 renderAll();
                 alert('復元完了');
@@ -6048,19 +6182,25 @@
 
             // トランザクションで読み取り→マージ→書き込み（他人の変更を上書きしない）
             database.ref('teams/' + TEAM_ID).transaction(currentData => {
-                if (!currentData) return localData;
-                // Firebase上の最新データにローカルの変更をマージ
-                deepMerge(currentData, localData);
+                if (!currentData) return JSON.parse(JSON.stringify(localData));
+                // Firebase上の最新データにローカルの変更をマージ（リトライ時もフレッシュコピーを使用）
+                const freshLocal = JSON.parse(JSON.stringify(localData));
+                deepMerge(currentData, freshLocal);
                 return currentData;
             })
                 .then((result) => {
                     // トランザクション成功後、Firebaseのマージ済み最終状態でローカルを置換
-                    if (result.committed && result.snapshot) {
+                    // ただし保存待ちの変更がある場合はスキップ（ユーザーの最新入力を優先）
+                    if (result.committed && result.snapshot && !saveTimer) {
                         const merged = result.snapshot.val();
                         if (merged) {
                             // マージ済みデータで直接上書き（deepMergeしない→二重適用防止）
                             const localOnlyKeys = ['deletedMembers'];
-                            Object.keys(merged).forEach(k => { data[k] = merged[k]; });
+                            Object.keys(merged).forEach(k => {
+                                if (!localOnlyKeys.includes(k)) {
+                                    data[k] = merged[k];
+                                }
+                            });
                             // 配列修復
                             if (data.members && !Array.isArray(data.members))
                                 data.members = Object.values(data.members);
@@ -6107,6 +6247,12 @@
                 if (!data.members) {
                     data.members = [];
                 }
+                // accountsの配列修復
+                if (data.accounts && !Array.isArray(data.accounts)) {
+                    data.accounts = Object.values(data.accounts);
+                    console.log('⚠️ loadData: accountsをオブジェクトから配列に変換しました');
+                }
+                if (!data.accounts) data.accounts = [];
                 if (data.weeks) {
                     for (const weekKey in data.weeks) {
                         if (data.weeks[weekKey].review && !data.weeks[weekKey].review.ngReasons) {
@@ -6117,10 +6263,26 @@
             }
         }
 
+        // Firebaseはarrayをobjectに変換するため、復元用ヘルパー
+        function fixFirebaseArray(obj) {
+            if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+                const keys = Object.keys(obj);
+                if (keys.length > 0 && keys.every(k => /^\d+$/.test(k))) {
+                    const arr = [];
+                    keys.forEach(k => { arr[parseInt(k)] = obj[k]; });
+                    return arr;
+                }
+            }
+            return obj;
+        }
+
         function deepMerge(target, source) {
             for (const key of Object.keys(source)) {
-                const s = source[key];
+                let s = source[key];
                 const t = target[key];
+
+                // Firebaseが配列をオブジェクトに変換した場合の修復
+                s = fixFirebaseArray(s);
 
                 if (s && typeof s === 'object' && !Array.isArray(s)
                     && t && typeof t === 'object' && !Array.isArray(t)) {
@@ -6130,9 +6292,9 @@
                     && s.length === t.length && s.length > 0
                     && typeof s[0] === 'number') {
                     // 同じ長さの数値配列（日別データ [0,0,0,0,0,0,0]）: 要素単位マージ
-                    // sourceに非ゼロ値があればそちらを採用、なければtargetを維持
+                    // source側の値を採用（undefinedやnullでない限り）
                     for (let i = 0; i < s.length; i++) {
-                        if (s[i] !== 0) {
+                        if (s[i] !== undefined && s[i] !== null) {
                             t[i] = s[i];
                         }
                     }
@@ -6150,6 +6312,21 @@
                         }
                     });
                     target[key] = merged;
+                } else if ((key === 'causeActions' || key === 'actions' || key === 'cases' || key === 'cancels' || key === 'doinMuchakuList')
+                    && Array.isArray(s) && Array.isArray(t)) {
+                    // オブジェクト配列（施策・残案件等）: インデックス単位で再帰マージ
+                    const maxLen = Math.max(s.length, t.length);
+                    for (let i = 0; i < maxLen; i++) {
+                        if (i < s.length && i < t.length) {
+                            if (s[i] && typeof s[i] === 'object' && t[i] && typeof t[i] === 'object') {
+                                deepMerge(t[i], s[i]);
+                            }
+                            else if (i < s.length) { t[i] = s[i]; }
+                        } else if (i >= t.length && i < s.length) {
+                            t.push(s[i]);
+                        }
+                    }
+                    target[key] = t;
                 } else {
                     target[key] = s;
                 }
@@ -6161,8 +6338,9 @@
                 const firebaseData = snapshot.val();
                 if (!firebaseData) return;
 
-                // 自分の書き込み中はスキップ（トランザクション完了後に反映済み）
-                if (isSaving) return;
+                // 自分の書き込み中、または保存待ちの変更がある場合はスキップ
+                // （ユーザーが数値を変更した直後にFirebaseの古い値で上書きされるのを防ぐ）
+                if (isSaving || saveTimer) return;
 
                 debugListenerCount++;
                 const now = new Date();
@@ -6184,8 +6362,8 @@
                         id: activeEl.id,
                         name: activeEl.name,
                         value: activeEl.value,
-                        selStart: activeEl.selectionStart,
-                        selEnd: activeEl.selectionEnd,
+                        selStart: (activeEl.tagName !== 'SELECT') ? activeEl.selectionStart : null,
+                        selEnd: (activeEl.tagName !== 'SELECT') ? activeEl.selectionEnd : null,
                         // onchange属性で要素を特定（IDがない場合）
                         onchange: activeEl.getAttribute('onchange') || ''
                     };
@@ -6201,6 +6379,34 @@
                 if (!data.members) data.members = [];
                 if (data.accounts && !Array.isArray(data.accounts)) {
                     data.accounts = Object.values(data.accounts);
+                }
+                // memberReview内のcauseActions配列修復
+                if (data.weeks) {
+                    for (const wk in data.weeks) {
+                        const mr = data.weeks[wk].memberReview;
+                        if (mr) {
+                            for (const mid in mr) {
+                                let ca = mr[mid].causeActions;
+                                if (ca && !Array.isArray(ca)) {
+                                    mr[mid].causeActions = Object.values(ca);
+                                }
+                                if (Array.isArray(mr[mid].causeActions)) {
+                                    mr[mid].causeActions.forEach(item => {
+                                        if (item && item.actions && !Array.isArray(item.actions)) {
+                                            item.actions = Object.values(item.actions);
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                        const rv = data.weeks[wk].review;
+                        if (rv) {
+                            if (rv.cases && !Array.isArray(rv.cases)) rv.cases = Object.values(rv.cases);
+                            if (rv.cancels && !Array.isArray(rv.cancels)) rv.cancels = Object.values(rv.cancels);
+                            if (rv.doinMuchakuList && !Array.isArray(rv.doinMuchakuList)) rv.doinMuchakuList = Object.values(rv.doinMuchakuList);
+                            if (rv.causeActions && !Array.isArray(rv.causeActions)) rv.causeActions = Object.values(rv.causeActions);
+                        }
+                    }
                 }
 
                 // userMapの更新
@@ -6276,6 +6482,7 @@
             a.href = URL.createObjectURL(blob);
             a.download = `sales-data-${getWeekKey()}.json`;
             a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 1000);
         }
 
         function importData(e) {
@@ -6283,7 +6490,18 @@
             if (!f) return;
             createBackup('JSONインポート前');
             const r = new FileReader();
-            r.onload = ev => { try { data = JSON.parse(ev.target.result); saveData(); renderAll(); alert('インポート完了'); } catch { alert('読み込み失敗'); } };
+            r.onload = ev => { try {
+                data = JSON.parse(ev.target.result);
+                // 配列修復
+                if (data.members && !Array.isArray(data.members)) data.members = Object.values(data.members);
+                if (!data.members) data.members = [];
+                if (data.accounts && !Array.isArray(data.accounts)) data.accounts = Object.values(data.accounts);
+                if (!data.accounts) data.accounts = [];
+                if (!data.monthlyRates) data.monthlyRates = {};
+                if (!data.monthVideos) data.monthVideos = {};
+                if (!data.deletedMembers) data.deletedMembers = [];
+                saveData(); renderAll(); alert('インポート完了');
+            } catch { alert('読み込み失敗'); } };
             r.readAsText(f);
             e.target.value = '';
         }
@@ -6296,12 +6514,12 @@
                 return;
             }
 
-            const days = ['月', '火', '水', '木', '金', '土', '日'];
+            const days = ['土', '日', '月', '火', '水', '木', '金'];
             const headers = ['アカウント名', '日付', 'フォロー', 'フォロワー', 'フォロー解除', 'フォロワー解除', 'DM送信', 'DM返信', 'DMオファー', 'アポ獲得', 'アポ実施', '動員予定', '動員実施', '成約', 'ブロック'];
 
             let csv = headers.join(',') + '\n';
 
-            data.accounts.forEach(account => {
+            (data.accounts || []).forEach(account => {
                 const igData = weekData.instagram[account.id];
                 if (!igData) return;
 
@@ -6330,7 +6548,7 @@
             csv += '\n--- 週別合計 ---\n';
             csv += 'アカウント名,フォロー計,フォロワー計,DM送信計,DM返信計,DMオファー計,アポ獲得計,アポ実施計,動員実施計,成約計\n';
 
-            data.accounts.forEach(account => {
+            (data.accounts || []).forEach(account => {
                 const igData = weekData.instagram[account.id];
                 if (!igData) return;
 
@@ -6356,6 +6574,7 @@
             a.href = URL.createObjectURL(blob);
             a.download = `instagram-${weekKey}.csv`;
             a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 1000);
         }
 
         function clearData() { if (!confirm('全データを削除しますか？')) return; localStorage.removeItem('salesPro_core'); location.reload(); }
@@ -6436,8 +6655,8 @@
 
             // monthKeyからyear, monthを取得
             const parts = monthKey.split('-');
-            const year = parseInt(parts[0]);
-            const month = parseInt(parts[1]);
+            const year = parseInt(parts[0], 10);
+            const month = parseInt(parts[1], 10);
 
             // そのメンバーのそのの月の全データを集計
             const totals = calcMemberTotalsForMonth(memberId, year, month);
@@ -6575,6 +6794,9 @@
             const mendanExecGoal = document.getElementById('mMendanExec');
             if (mendanGoal && mendanExecGoal) {
                 mendanExecGoal.value = mendanGoal.value;
+                mendanExecGoal.classList.remove('settings-updated');
+                void mendanExecGoal.offsetWidth;
+                mendanExecGoal.classList.add('settings-updated');
             }
 
             // 設定を保存
@@ -6609,7 +6831,7 @@
             const memberName = data.members.find(m => m.id === targetMember)?.name || targetMember;
 
             // 成約予算を入力から取得
-            const seiyakuBudget = parseInt(document.getElementById('bSeiyaku').value) || 0;
+            const seiyakuBudget = parseInt(document.getElementById('bSeiyaku').value, 10) || 0;
             if (seiyakuBudget <= 0) {
                 alert('成約の予算を先に入力してください。');
                 return;
@@ -6667,10 +6889,13 @@
                 }
             };
 
-            // 面談も逆算（面談実施率から）
-            const mendanGoal = rates.mendanExecRate > 0
-                ? Math.ceil(doinExecGoal / rates.mendanExecRate)
-                : doinExecGoal;
+            // 面談目標：面談獲得の予算x1.2から計算、面談実施率で面談実施目標を算出
+            const mendanBudgetEl = document.getElementById('bMendan');
+            const mendanBudget = mendanBudgetEl ? (parseInt(mendanBudgetEl.value, 10) || 0) : 0;
+            const mendanGoal = mendanBudget > 0 ? Math.ceil(mendanBudget * 1.2) : seiyakuGoal;
+            const mendanExecGoalCalc = rates.mendanExecRate > 0
+                ? Math.ceil(mendanGoal * rates.mendanExecRate)
+                : mendanGoal;
 
             setField('mPost', postGoal);
             setField('mApoGet', apoGetGoal);
@@ -6678,7 +6903,7 @@
             setField('mDoinGet', doinGetGoal);
             setField('mDoinExec', doinExecGoal);
             setField('mMendan', mendanGoal);
-            setField('mMendanExec', mendanGoal);
+            setField('mMendanExec', mendanExecGoalCalc);
             setField('mSeiyaku', seiyakuGoal);
 
             // 確認メッセージ表示
@@ -6826,7 +7051,7 @@
 
             // プレビューを先に表示
             const parts = monthKey.split('-');
-            const totals = calcMemberTotalsForMonth(targetMember, parseInt(parts[0]), parseInt(parts[1]));
+            const totals = calcMemberTotalsForMonth(targetMember, parseInt(parts[0], 10), parseInt(parts[1], 10));
             const rates = calcRatesFromTotals(totals);
 
             const previewMsg = `${memberName} (${monthKey}) の実績パーセンテージ:\n\n` +
@@ -6934,12 +7159,17 @@
             const promptEl = document.getElementById('monthEndRatePrompt');
             if (!promptEl) return;
 
+            const memberId = getCurrentMemberId();
+            if (!memberId) {
+                promptEl.style.display = 'none';
+                return;
+            }
+
             // 月末7日以内
             if (daysRemaining <= 7) {
                 // 今月の記録がまだない場合のみ表示
                 const currentMonthKey = getMonthKey();
-                const memberId = getCurrentMemberId();
-                if (memberId && data.monthlyRates && data.monthlyRates[memberId] && data.monthlyRates[memberId][currentMonthKey]) {
+                if (data.monthlyRates && data.monthlyRates[memberId] && data.monthlyRates[memberId][currentMonthKey]) {
                     // 既に記録済み
                     promptEl.style.display = 'none';
                 } else {
