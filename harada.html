@@ -1979,7 +1979,7 @@
             const daysInMonth = new Date(year, month, 0).getDate();
             const firstDay = new Date(year, month - 1, 1);
             const dow = (firstDay.getDay() + 1) % 7;
-            return Math.min(Math.ceil((daysInMonth + dow) / 7), 5);
+            return Math.ceil((daysInMonth + dow) / 7);
         }
 
         // チームパスワード（新規登録時のゲート用）
@@ -6671,6 +6671,7 @@
          */
         function calcMemberTotalsForMonth(memberId, year, month) {
             console.log(`[calcMemberTotalsForMonth] memberId=${memberId}, year=${year}, month=${month}`);
+            console.log(`[calcMemberTotalsForMonth] data.weeks keys:`, Object.keys(data.weeks || {}));
             const t = {};
             metrics.forEach(c => c.items.forEach(m => t[m.key] = 0));
 
@@ -6678,9 +6679,14 @@
             for (let w = 1; w <= maxW; w++) {
                 const weekKey = `${year}-${month}-W${w}`;
                 const weekData = data.weeks[weekKey];
+                console.log(`[calcMemberTotalsForMonth] ${weekKey}: exists=${!!weekData}, hasDaily=${!!(weekData?.daily)}, hasMember=${!!(weekData?.daily?.[memberId])}`);
                 if (weekData && weekData.daily && weekData.daily[memberId]) {
                     const d = weekData.daily[memberId];
                     metrics.forEach(c => c.items.forEach(met => {
+                        // Firebase→Object変換された配列を修復してから加算
+                        if (d[met.key] && !Array.isArray(d[met.key]) && typeof d[met.key] === 'object') {
+                            d[met.key] = fixFirebaseArray(d[met.key]);
+                        }
                         t[met.key] += safeArraySum(d[met.key]);
                     }));
                 }
@@ -7074,6 +7080,10 @@
             if (targetMember === 'all') {
                 // 全メンバー分を一括で保存
                 const monthKey = getMonthKey();
+                if (data.members.length === 0) {
+                    alert('メンバーが登録されていません。');
+                    return;
+                }
                 let results = [];
                 data.members.forEach(m => {
                     const result = saveMonthlyRates(m.id, monthKey);
@@ -7106,6 +7116,8 @@
 
                 const resultEl = document.getElementById('monthlyRatesSaveResult');
                 if (resultEl) resultEl.innerHTML = html;
+                // 保存後にプロンプトを非表示にする
+                try { checkMonthEndRatePrompt(); } catch(e) {}
                 return;
             }
 
@@ -7118,18 +7130,28 @@
             const totals = calcMemberTotalsForMonth(targetMember, parseInt(parts[0], 10), parseInt(parts[1], 10));
             const rates = calcRatesFromTotals(totals);
 
-            const previewMsg = `${memberName} (${monthKey}) の実績パーセンテージ:\n\n` +
-                `投稿: ${totals.post || 0}\n` +
-                `アポ獲得: ${totals.apoGet || 0} (獲得率: ${(rates.apoGetRate*100).toFixed(1)}%)\n` +
-                `アポ実施: ${totals.apoExec || 0} (実施率: ${(rates.apoExecRate*100).toFixed(1)}%)\n` +
-                `動員獲得: ${totals.doinGet || 0} (獲得率: ${(rates.doinGetRate*100).toFixed(1)}%)\n` +
-                `動員実施: ${totals.doinExec || 0} (実施率: ${(rates.doinExecRate*100).toFixed(1)}%)\n` +
-                `面談獲得: ${totals.mendanGet || 0}\n` +
-                `面談実施: ${totals.mendanExec || 0} (実施率: ${(rates.mendanExecRate*100).toFixed(1)}%)\n` +
-                `成約: ${totals.seiyaku || 0} (成約率: ${(rates.seiyakuRate*100).toFixed(1)}%)\n\n` +
-                `この内容を記録しますか？`;
-
-            if (!confirm(previewMsg)) return;
+            // 全データが0の場合は警告
+            const totalSum = Object.values(totals).reduce((a, b) => a + b, 0);
+            if (totalSum === 0) {
+                const warnMsg = `${memberName} (${monthKey}) の日別データが見つかりません。\n\n` +
+                    `考えられる原因:\n` +
+                    `・このメンバーの日別数字がまだ入力されていない\n` +
+                    `・別の月/年のデータを表示中\n\n` +
+                    `全て0%で記録しますか？`;
+                if (!confirm(warnMsg)) return;
+            } else {
+                const previewMsg = `${memberName} (${monthKey}) の実績パーセンテージ:\n\n` +
+                    `投稿: ${totals.post || 0}\n` +
+                    `アポ獲得: ${totals.apoGet || 0} (獲得率: ${(rates.apoGetRate*100).toFixed(1)}%)\n` +
+                    `アポ実施: ${totals.apoExec || 0} (実施率: ${(rates.apoExecRate*100).toFixed(1)}%)\n` +
+                    `動員獲得: ${totals.doinGet || 0} (獲得率: ${(rates.doinGetRate*100).toFixed(1)}%)\n` +
+                    `動員実施: ${totals.doinExec || 0} (実施率: ${(rates.doinExecRate*100).toFixed(1)}%)\n` +
+                    `面談獲得: ${totals.mendanGet || 0}\n` +
+                    `面談実施: ${totals.mendanExec || 0} (実施率: ${(rates.mendanExecRate*100).toFixed(1)}%)\n` +
+                    `成約: ${totals.seiyaku || 0} (成約率: ${(rates.seiyakuRate*100).toFixed(1)}%)\n\n` +
+                    `この内容を記録しますか？`;
+                if (!confirm(previewMsg)) return;
+            }
 
             const result = saveMonthlyRates(targetMember, monthKey);
             if (result) {
@@ -7148,6 +7170,8 @@
                 const resultEl = document.getElementById('monthlyRatesSaveResult');
                 if (resultEl) resultEl.innerHTML = html;
             }
+            // 保存後にプロンプトを非表示にする
+            try { checkMonthEndRatePrompt(); } catch(e) {}
         }
 
         function showPastRatesHistory() {
@@ -7223,7 +7247,8 @@
             const promptEl = document.getElementById('monthEndRatePrompt');
             if (!promptEl) return;
 
-            const memberId = getCurrentMemberId();
+            // 認証ユーザーまたは選択中メンバーで判定
+            const memberId = getCurrentMemberId() || (selectedMember !== 'all' ? selectedMember : null);
             if (!memberId) {
                 promptEl.style.display = 'none';
                 return;
@@ -7233,8 +7258,11 @@
             if (daysRemaining <= 7) {
                 // 今月の記録がまだない場合のみ表示
                 const currentMonthKey = getMonthKey();
-                if (data.monthlyRates && data.monthlyRates[memberId] && data.monthlyRates[memberId][currentMonthKey]) {
-                    // 既に記録済み
+                const hasRecord = data.monthlyRates && data.monthlyRates[memberId] && data.monthlyRates[memberId][currentMonthKey];
+                // 「全体」選択時は全メンバーの記録状況を確認
+                const allRecorded = selectedMember === 'all' && data.members.length > 0 &&
+                    data.members.every(m => data.monthlyRates && data.monthlyRates[m.id] && data.monthlyRates[m.id][currentMonthKey]);
+                if (hasRecord || allRecorded) {
                     promptEl.style.display = 'none';
                 } else {
                     promptEl.style.display = 'block';
