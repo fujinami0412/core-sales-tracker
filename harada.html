@@ -6197,8 +6197,9 @@
             const dot = document.getElementById('syncDot');
 
             isSaving = true;
+            // saveData()で設定済みのlastUpdatedをそのまま使う（別タイムスタンプを作らない）
+            if (!data.lastUpdated) data.lastUpdated = Date.now();
             const localData = JSON.parse(JSON.stringify(data));
-            localData.lastUpdated = Date.now();
 
             // トランザクションで読み取り→マージ→書き込み（他人の変更を上書きしない）
             database.ref('teams/' + TEAM_ID).transaction(currentData => {
@@ -6302,6 +6303,9 @@
                 let s = source[key];
                 const t = target[key];
 
+                // null/undefinedのsourceでtargetの値を消さない
+                if (s === null || s === undefined) continue;
+
                 // Firebaseが配列をオブジェクトに変換した場合の修復
                 s = fixFirebaseArray(s);
 
@@ -6368,8 +6372,8 @@
 
                 // ローカルの方がFirebaseより新しい場合（ページ離脱前に保存が間に合わなかったケース）
                 // → ローカルデータをFirebaseに反映してこの受信はスキップ
-                if (data.lastUpdated && firebaseData.lastUpdated
-                    && data.lastUpdated > firebaseData.lastUpdated) {
+                if (data.lastUpdated &&
+                    (!firebaseData.lastUpdated || data.lastUpdated > firebaseData.lastUpdated)) {
                     console.log('⚠️ ローカルの方が新しい (local:', data.lastUpdated, 'firebase:', firebaseData.lastUpdated, ') → Firebaseに反映');
                     saveToFirebase();
                     return;
