@@ -2490,8 +2490,13 @@
             if (!w.daily) w.daily = {};
             if (!w.daily[memberId]) {
                 w.daily[memberId] = {};
-                metrics.forEach(c => c.items.forEach(m => { w.daily[memberId][m.key] = [0,0,0,0,0,0,0]; }));
             }
+            // 全メトリックキーの存在を常に保証（Firebaseから部分データが来た場合の対策）
+            metrics.forEach(c => c.items.forEach(m => {
+                if (!w.daily[memberId][m.key] || !Array.isArray(w.daily[memberId][m.key])) {
+                    w.daily[memberId][m.key] = [0,0,0,0,0,0,0];
+                }
+            }));
             return w.daily[memberId];
         }
 
@@ -6184,6 +6189,7 @@
         }
 
         function doFirebaseSave() {
+            saveTimer = null; // タイマーをリセット（Firebaseリスナーが再有効化される）
             // 日次自動バックアップ（1日1回）
             const today = new Date().toDateString();
             if (lastBackupDate !== today) {
@@ -6225,6 +6231,26 @@
                             if (!data.members) data.members = [];
                             if (data.accounts && !Array.isArray(data.accounts))
                                 data.accounts = Object.values(data.accounts);
+                            // weeks内の日別データ配列修復（Firebase→Object変換対策）
+                            if (data.weeks) {
+                                Object.keys(data.weeks).forEach(wk => {
+                                    const wd = data.weeks[wk];
+                                    if (wd && wd.daily) {
+                                        Object.keys(wd.daily).forEach(mid => {
+                                            Object.keys(wd.daily[mid]).forEach(mk => {
+                                                wd.daily[mid][mk] = fixFirebaseArray(wd.daily[mid][mk]);
+                                            });
+                                        });
+                                    }
+                                    if (wd && wd.instagram) {
+                                        Object.keys(wd.instagram).forEach(aid => {
+                                            Object.keys(wd.instagram[aid]).forEach(mk => {
+                                                wd.instagram[aid][mk] = fixFirebaseArray(wd.instagram[aid][mk]);
+                                            });
+                                        });
+                                    }
+                                });
+                            }
                             localStorage.setItem('salesPro_core', JSON.stringify(data));
                         }
                     }
