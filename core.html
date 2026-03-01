@@ -2493,6 +2493,10 @@
             }
             // 全メトリックキーの存在を常に保証（Firebaseから部分データが来た場合の対策）
             metrics.forEach(c => c.items.forEach(m => {
+                // Firebase→Object変換された配列を先に修復（データ損失防止）
+                if (w.daily[memberId][m.key] && !Array.isArray(w.daily[memberId][m.key]) && typeof w.daily[memberId][m.key] === 'object') {
+                    w.daily[memberId][m.key] = fixFirebaseArray(w.daily[memberId][m.key]);
+                }
                 if (!w.daily[memberId][m.key] || !Array.isArray(w.daily[memberId][m.key])) {
                     w.daily[memberId][m.key] = [0,0,0,0,0,0,0];
                 }
@@ -7229,11 +7233,20 @@
          */
         function checkMonthEndRatePrompt() {
             const today = new Date();
-            const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+            // 実際の今月（表示中の月ではなく実カレンダー）を使って判定
+            const realYear = today.getFullYear();
+            const realMonth = today.getMonth() + 1;
+            const daysInMonth = new Date(realYear, realMonth, 0).getDate();
             const daysRemaining = daysInMonth - today.getDate();
 
             const promptEl = document.getElementById('monthEndRatePrompt');
             if (!promptEl) return;
+
+            // 表示中の月が実際の今月と異なる場合はプロンプト不要
+            if (currentYear !== realYear || currentMonth !== realMonth) {
+                promptEl.style.display = 'none';
+                return;
+            }
 
             // 認証ユーザーまたは選択中メンバーで判定
             const memberId = getCurrentMemberId() || (selectedMember !== 'all' ? selectedMember : null);
@@ -7245,7 +7258,7 @@
             // 月末7日以内
             if (daysRemaining <= 7) {
                 // 今月の記録がまだない場合のみ表示
-                const currentMonthKey = getMonthKey();
+                const currentMonthKey = `${realYear}-${realMonth}`;
                 const hasRecord = data.monthlyRates && data.monthlyRates[memberId] && data.monthlyRates[memberId][currentMonthKey];
                 const allRecorded = selectedMember === 'all' && data.members.length > 0 &&
                     data.members.every(m => data.monthlyRates && data.monthlyRates[m.id] && data.monthlyRates[m.id][currentMonthKey]);
