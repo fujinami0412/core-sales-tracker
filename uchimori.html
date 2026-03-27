@@ -27,6 +27,8 @@
             console.warn('Auth永続化設定エラー（file://では正常）:', e.message);
         });
         const TEAM_ID = 'uchimori';
+        const DATA_KEY = 'salesPro_' + TEAM_ID;
+        const STATE_KEY = TEAM_ID + 'TrackerState';
     </script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1894,7 +1896,7 @@
         }
 
         // ページ状態をlocalStorageから復元
-        const savedState = JSON.parse(localStorage.getItem('uchimoriTrackerState') || '{}');
+        const savedState = JSON.parse(localStorage.getItem(STATE_KEY) || '{}');
         const now = new Date();
         let currentYear = savedState.year || now.getFullYear();
         let currentMonth = savedState.month || (now.getMonth() + 1);
@@ -1915,7 +1917,7 @@
 
         // ページ状態を保存
         function savePageState() {
-            localStorage.setItem('uchimoriTrackerState', JSON.stringify({
+            localStorage.setItem(STATE_KEY, JSON.stringify({
                 year: currentYear,
                 month: currentMonth,
                 week: currentWeekNum,
@@ -2249,9 +2251,15 @@
                             if (fbData.deletedMembers) {
                                 data.deletedMembers = Array.isArray(fbData.deletedMembers) ? fbData.deletedMembers : Object.values(fbData.deletedMembers);
                             }
+                            firebaseDataLoaded = true;
+                            // FirebaseデータでlocalStorageを更新（ローカルの古いデータを上書き）
+                            localStorage.setItem(DATA_KEY, JSON.stringify(data));
+                            console.log('✅ Firebase初回データ取得完了。メンバー数:', data.members.length, 'weeks数:', Object.keys(data.weeks || {}).length);
                         }
                     } catch (e) {
                         console.error('初回データ取得エラー:', e);
+                        // ネットワークエラーでもlocalStorageからの既存データで続行可能
+                        // ただしfirebaseDataLoaded=falseのままなので、空データでのFirebase上書きは防止される
                     }
                     try {
                     const hasMapping = await loadUserMap();
@@ -2617,14 +2625,16 @@
             renderAll();
         }
 
+        let activeTabId = 'summary'; // 現在のアクティブタブを追跡
         function switchTab(id) {
+            activeTabId = id;
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
             document.querySelector(`.tab[onclick="switchTab('${id}')"]`).classList.add('active');
             document.getElementById(`tab-${id}`).classList.add('active');
-            // 設定タブが開かれたときにrenderSettingsを再呼び出し
+            // タブ切替時にそのタブだけ再描画
+            renderActiveTab();
             if (id === 'settings') {
-                renderSettings();
                 loadBackupList();
             }
         }
@@ -2659,18 +2669,36 @@
             document.getElementById('chartTooltip').classList.remove('show');
         }
 
-        function renderAll() {
+        // アクティブタブだけ描画（パフォーマンス改善: 全タブ一括描画を廃止）
+        function renderActiveTab() {
             try { renderMemberSelect(); } catch(e) { console.error('renderMemberSelect:', e.message); }
-            try { renderSummary(); } catch(e) { console.error('renderSummary:', e.message); }
-            try { renderMemberTable(); } catch(e) { console.error('renderMemberTable:', e.message); }
-            try { renderDailyInput(); } catch(e) { console.error('renderDailyInput:', e.message); }
-            try { renderNippo(); } catch(e) { console.error('renderNippo:', e.message); }
-            try { renderReview(); } catch(e) { console.error('renderReview:', e.message); }
-            try { renderInstagram(); } catch(e) { console.error('renderInstagram:', e.message); }
-            try { renderSettings(); } catch(e) { console.error('renderSettings:', e.message); }
-            // Supabase連携データの再レンダリング（メンバー選択でフィルタ反映）
-            try { renderSupabaseSummary(); } catch(e) { console.error('renderSupabaseSummary:', e.message); }
-            try { renderSupabaseInputSection(); } catch(e) { console.error('renderSupabaseInputSection:', e.message); }
+            switch (activeTabId) {
+                case 'summary':
+                    try { renderSummary(); } catch(e) { console.error('renderSummary:', e.message); }
+                    try { renderMemberTable(); } catch(e) { console.error('renderMemberTable:', e.message); }
+                    try { renderSupabaseSummary(); } catch(e) { console.error('renderSupabaseSummary:', e.message); }
+                    break;
+                case 'daily':
+                    try { renderDailyInput(); } catch(e) { console.error('renderDailyInput:', e.message); }
+                    try { renderSupabaseInputSection(); } catch(e) { console.error('renderSupabaseInputSection:', e.message); }
+                    break;
+                case 'nippo':
+                    try { renderNippo(); } catch(e) { console.error('renderNippo:', e.message); }
+                    break;
+                case 'review':
+                    try { renderReview(); } catch(e) { console.error('renderReview:', e.message); }
+                    break;
+                case 'instagram':
+                    try { renderInstagram(); } catch(e) { console.error('renderInstagram:', e.message); }
+                    break;
+                case 'settings':
+                    try { renderSettings(); } catch(e) { console.error('renderSettings:', e.message); }
+                    break;
+            }
+        }
+        // 後方互換: 既存のrenderAll()呼び出しをカバー
+        function renderAll() {
+            renderActiveTab();
         }
 
         function renderMemberSelect() {
@@ -2771,7 +2799,7 @@
                 // 個別メンバー選択時：そのメンバーの目標
                 g = getMemberGoals(selectedMember);
             }
-            console.log('📊 renderSummary - selectedMember:', selectedMember, '目標:', JSON.stringify(g));
+            // console.log('📊 renderSummary - selectedMember:', selectedMember);
 
             // 今日までに達成すべき目標を計算（使える日数 = 月末日数 - 3）
             const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
@@ -2974,8 +3002,16 @@
             // 残案件・キャンセル・動員後無着地を表示
             try { renderSummaryCasesAndCancels(); } catch(e) { console.error('renderSummaryCasesAndCancels error:', e); }
 
-            // チャートを描画
-            try { renderLargeCharts(); } catch(e) { console.error('renderLargeCharts error:', e); }
+            // チャートを描画（重いのでデバウンス）
+            debouncedChartRender();
+        }
+        let chartRenderTimer = null;
+        function debouncedChartRender() {
+            if (chartRenderTimer) clearTimeout(chartRenderTimer);
+            chartRenderTimer = setTimeout(() => {
+                chartRenderTimer = null;
+                try { renderLargeCharts(); } catch(e) { console.error('renderLargeCharts error:', e); }
+            }, 800);
         }
 
         function renderSummaryMuchakuBreakdown() {
@@ -3820,16 +3856,22 @@
             }
 
             data.weeks[weekKey].daily[memberId][metricKey][dayOfWeek] = parseInt(value, 10) || 0;
+            markUserEditing();
             saveData();
-            renderSummary();
-            renderMemberTable();
+            debouncedLightRender();
         }
 
         function updateDaily(memberId, key, idx, val, evt) {
-            getMemberDaily(memberId)[key][idx] = parseInt(val, 10) || 0;
+            const newVal = parseInt(val, 10) || 0;
+            const oldVal = getMemberDaily(memberId)[key][idx];
+            getMemberDaily(memberId)[key][idx] = newVal;
+            // ユーザーが明示的に0に変更した場合を追跡（deepMergeのゼロ上書き防止バイパス用）
+            if (newVal === 0 && oldVal !== 0) {
+                userZeroChanges[`weeks/${getWeekKey()}/daily/${memberId}/${key}/${idx}`] = true;
+            }
+            markUserEditing();
             saveData();
-            renderSummary();
-            renderMemberTable();
+            debouncedLightRender();
             const total = getMemberDaily(memberId)[key].reduce((a,b) => a+b, 0);
             const e = evt || window.event;
             if (e && e.target) {
@@ -6058,8 +6100,32 @@
 
         // データ
         let firebaseInitialized = false;
+        let firebaseDataLoaded = false; // Firebase初回データ取得完了フラグ
 
         let lastBackupDate = null;
+
+        // ユーザーが明示的に0に設定した値をFirebase保存時に反映する
+        function applyUserZeroChanges(localData, firebaseData) {
+            for (const path in userZeroChanges) {
+                const parts = path.split('/');
+                // weeks/weekKey/daily/memberId/metricKey/dayIndex
+                if (parts.length === 6 && parts[0] === 'weeks' && parts[2] === 'daily') {
+                    const [, weekKey, , memberId, metricKey, dayIdx] = parts;
+                    const i = parseInt(dayIdx);
+                    // Firebase側の値を0に設定（ユーザーが明示的に変更したため）
+                    if (firebaseData.weeks && firebaseData.weeks[weekKey] &&
+                        firebaseData.weeks[weekKey].daily && firebaseData.weeks[weekKey].daily[memberId] &&
+                        firebaseData.weeks[weekKey].daily[memberId][metricKey]) {
+                        const arr = firebaseData.weeks[weekKey].daily[memberId][metricKey];
+                        if (Array.isArray(arr) || typeof arr === 'object') {
+                            if (Array.isArray(arr)) arr[i] = 0;
+                            else arr[String(i)] = 0;
+                        }
+                    }
+                }
+            }
+            userZeroChanges = {}; // 適用後クリア
+        }
 
         async function createBackup(reason) {
             if (!firebaseInitialized) return;
@@ -6172,7 +6238,7 @@
 
         function saveData() {
             data.lastUpdated = Date.now();
-            localStorage.setItem('salesPro_uchimori', JSON.stringify(data));
+            localStorage.setItem(DATA_KEY, JSON.stringify(data));
             saveToFirebase();
         }
 
@@ -6204,16 +6270,35 @@
             const text = document.getElementById('syncText');
             const dot = document.getElementById('syncDot');
 
+            // データ保護: Firebase未取得状態での保存を阻止
+            if (!firebaseDataLoaded) {
+                console.warn('⚠️ Firebaseデータ未取得状態での保存をスキップ');
+                if (text) text.textContent = '⚠️ 同期待ち';
+                if (dot) dot.className = 'sync-dot offline';
+                return;
+            }
+
             isSaving = true;
             if (!data.lastUpdated) data.lastUpdated = Date.now();
             const localData = JSON.parse(JSON.stringify(data));
 
             // トランザクションで読み取り→マージ→書き込み（他人の変更を上書きしない）
             database.ref('teams/' + TEAM_ID).transaction(currentData => {
-                if (!currentData) return JSON.parse(JSON.stringify(localData));
+                if (!currentData) {
+                    // Firebaseにデータがない場合のみローカルデータを使用
+                    // ※ ただしFirebaseの初回読み込み前にここに来ると危険なため、
+                    //    firebaseDataLoadedフラグで保護
+                    if (!firebaseDataLoaded) {
+                        console.warn('⚠️ Firebaseデータ未取得状態での保存をスキップ');
+                        return; // トランザクション中止（undefinedを返す）
+                    }
+                    return JSON.parse(JSON.stringify(localData));
+                }
                 // Firebase上の最新データにローカルの変更をマージ（リトライ時もフレッシュコピーを使用）
                 const freshLocal = JSON.parse(JSON.stringify(localData));
-                deepMerge(currentData, freshLocal);
+                // ユーザーが明示的に0にした値はFirebase保存時も適用
+                applyUserZeroChanges(freshLocal, currentData);
+                deepMerge(currentData, freshLocal, 'toFirebase');
                 return currentData;
             })
                 .then((result) => {
@@ -6255,7 +6340,7 @@
                                     }
                                 });
                             }
-                            localStorage.setItem('salesPro_uchimori', JSON.stringify(data));
+                            localStorage.setItem(DATA_KEY, JSON.stringify(data));
                         }
                     }
                     isSaving = false;
@@ -6277,7 +6362,7 @@
         }
 
         function loadData() {
-            const s = localStorage.getItem('salesPro_uchimori');
+            const s = localStorage.getItem(DATA_KEY);
             if (s) {
                 data = JSON.parse(s);
                 if (!data.monthVideos) data.monthVideos = {};
@@ -6324,7 +6409,9 @@
             return obj;
         }
 
-        function deepMerge(target, source) {
+        // mode: 'toFirebase' = ローカル→Firebase保存時（ゼロでの上書きを防止）
+        //        undefined/'fromFirebase' = Firebase→ローカル同期時（通常マージ）
+        function deepMerge(target, source, mode) {
             for (const key of Object.keys(source)) {
                 let s = source[key];
                 const t = target[key];
@@ -6338,14 +6425,21 @@
                 if (s && typeof s === 'object' && !Array.isArray(s)
                     && t && typeof t === 'object' && !Array.isArray(t)) {
                     // オブジェクト同士: 再帰マージ
-                    deepMerge(t, s);
+                    deepMerge(t, s, mode);
                 } else if (Array.isArray(s) && Array.isArray(t)
                     && s.length === t.length && s.length > 0
                     && typeof s[0] === 'number') {
                     // 同じ長さの数値配列（日別データ [0,0,0,0,0,0,0]）: 要素単位マージ
-                    // source側の値を採用（undefinedやnullでない限り）
                     for (let i = 0; i < s.length; i++) {
                         if (s[i] !== undefined && s[i] !== null) {
+                            if (mode === 'toFirebase') {
+                                // Firebase保存時: ゼロでの非ゼロ値上書きを防止
+                                // （ユーザーが明示的に変更した場合はdirtyTrackerで管理）
+                                if (s[i] === 0 && typeof t[i] === 'number' && t[i] !== 0) {
+                                    // ゼロでFirebaseの実データを消さない
+                                    continue;
+                                }
+                            }
                             t[i] = s[i];
                         }
                     }
@@ -6370,7 +6464,7 @@
                     for (let i = 0; i < maxLen; i++) {
                         if (i < s.length && i < t.length) {
                             if (s[i] && typeof s[i] === 'object' && t[i] && typeof t[i] === 'object') {
-                                deepMerge(t[i], s[i]);
+                                deepMerge(t[i], s[i], mode);
                             }
                             else if (i < s.length) { t[i] = s[i]; }
                         } else if (i >= t.length && i < s.length) {
@@ -6379,10 +6473,42 @@
                     }
                     target[key] = t;
                 } else {
+                    if (mode === 'toFirebase') {
+                        // Firebase保存時: 空文字で既存テキストを上書きしない
+                        if (typeof s === 'string' && s === '' && typeof t === 'string' && t !== '') {
+                            continue; // 空文字でFirebaseの実テキストを消さない
+                        }
+                    }
                     target[key] = s;
                 }
             }
         }
+
+        // Firebaseリスナー描画デバウンス用
+        let firebaseRenderTimer = null;
+        // ユーザー編集中フラグ（Firebase再描画を抑制）
+        let userEditingTimer = null;
+        let isUserEditing = false;
+        function markUserEditing() {
+            isUserEditing = true;
+            if (userEditingTimer) clearTimeout(userEditingTimer);
+            userEditingTimer = setTimeout(() => { isUserEditing = false; }, 2000);
+        }
+        // 軽量レンダリング用デバウンス（サマリー/メンバーテーブル/チャート）
+        let lightRenderTimer = null;
+        function debouncedLightRender() {
+            if (lightRenderTimer) clearTimeout(lightRenderTimer);
+            lightRenderTimer = setTimeout(() => {
+                lightRenderTimer = null;
+                if (activeTabId === 'summary') {
+                    renderSummary();
+                    renderMemberTable();
+                }
+            }, 500);
+        }
+
+        // ユーザーが明示的に0に変更したセルを追跡（deepMergeのゼロ上書き防止をバイパス用）
+        let userZeroChanges = {}; // { "weekKey/memberId/metricKey/dayIndex": true }
 
         function setupFirebaseListener() {
             database.ref('teams/' + TEAM_ID).on('value', (snapshot) => {
@@ -6394,10 +6520,19 @@
                 if (isSaving || saveTimer) return;
 
                 // ローカルの方がFirebaseより新しい場合（ページ離脱前に保存が間に合わなかったケース）
+                // ※ ただし空データや初期化直後のデータでFirebaseを上書きしないよう保護
                 if (data.lastUpdated &&
                     (!firebaseData.lastUpdated || data.lastUpdated > firebaseData.lastUpdated)) {
-                    console.log('⚠️ ローカルの方が新しい → Firebaseに反映');
-                    saveToFirebase();
+                    // ローカルデータの有効性チェック: weeksにデータが存在するか
+                    const localWeekCount = Object.keys(data.weeks || {}).length;
+                    const fbWeekCount = Object.keys(firebaseData.weeks || {}).length;
+                    if (localWeekCount >= fbWeekCount && localWeekCount > 0) {
+                        console.log('⚠️ ローカルの方が新しい → Firebaseに反映（データ検証OK）');
+                        saveToFirebase();
+                    } else {
+                        console.warn('⚠️ ローカルが新しいがデータが少ない（local:', localWeekCount, 'weeks vs firebase:', fbWeekCount, 'weeks）→ Firebase優先');
+                        // Firebaseデータで上書き（安全策）
+                    }
                     return;
                 }
 
@@ -6471,9 +6606,20 @@
                 // userMapの更新
                 if (firebaseData.userMap) userMap = firebaseData.userMap;
 
-                localStorage.setItem('salesPro_uchimori', JSON.stringify(data));
+                localStorage.setItem(DATA_KEY, JSON.stringify(data));
                 updateHeaderUserInfo();
-                renderAll();
+
+                // 描画デバウンス: 連続受信時に描画を500msにまとめる（フリーズ防止）
+                if (firebaseRenderTimer) clearTimeout(firebaseRenderTimer);
+                firebaseRenderTimer = setTimeout(() => {
+                    firebaseRenderTimer = null;
+                    if (isUserEditing && (activeTabId === 'daily' || activeTabId === 'review' || activeTabId === 'instagram')) {
+                        try { renderSummary(); } catch(e) {}
+                        try { renderMemberTable(); } catch(e) {}
+                    } else {
+                        renderAll();
+                    }
+                }, 500);
 
                 // アクティブ入力欄の復元
                 if (savedInput) {
@@ -6501,24 +6647,51 @@
                 console.log('🔥 Firebase同期完了 v3.2 (smartMerge+preserve) 受信#' + debugListenerCount + ', メンバー数:', data.members.length);
             });
             firebaseInitialized = true;
+            firebaseDataLoaded = true; // リスナー設定時点でデータ取得済みとみなす
             updateSyncStatus();
-            console.log('🔥 Firebaseリスナー設定完了 v3.2');
+            console.log('🔥 Firebaseリスナー設定完了 v4.0 (ゼロ上書き防止+データ保護)');
         }
 
-        // 強制再読込: Firebaseから最新データを取得
+        // 強制再読込: Firebaseから最新データを完全に取得（localStorageを完全上書き）
         async function forceReload() {
             try {
                 const snapshot = await database.ref('teams/' + TEAM_ID).once('value');
                 const firebaseData = snapshot.val();
                 if (firebaseData) {
-                    deepMerge(data, firebaseData);
-                    if (data.members && !Array.isArray(data.members)) data.members = Object.values(data.members);
-                    if (!data.members) data.members = [];
-                    if (data.accounts && !Array.isArray(data.accounts)) data.accounts = Object.values(data.accounts);
+                    // マージではなく完全上書き（データ復元用）
+                    if (firebaseData.members) {
+                        data.members = Array.isArray(firebaseData.members) ? firebaseData.members : Object.values(firebaseData.members);
+                    }
+                    if (firebaseData.accounts) {
+                        data.accounts = Array.isArray(firebaseData.accounts) ? firebaseData.accounts : Object.values(firebaseData.accounts);
+                    }
+                    if (firebaseData.settings) data.settings = firebaseData.settings;
+                    if (firebaseData.weeks) data.weeks = firebaseData.weeks;
+                    if (firebaseData.monthVideos) data.monthVideos = firebaseData.monthVideos;
+                    if (firebaseData.monthlyRates) data.monthlyRates = firebaseData.monthlyRates;
+                    if (firebaseData.deletedMembers) {
+                        data.deletedMembers = Array.isArray(firebaseData.deletedMembers) ? firebaseData.deletedMembers : Object.values(firebaseData.deletedMembers);
+                    }
+                    if (firebaseData.lastUpdated) data.lastUpdated = firebaseData.lastUpdated;
                     if (firebaseData.userMap) userMap = firebaseData.userMap;
-                    localStorage.setItem('salesPro_uchimori', JSON.stringify(data));
+                    firebaseDataLoaded = true;
+                    localStorage.setItem(DATA_KEY, JSON.stringify(data));
                     renderAll();
-                    alert('再読込完了！メンバー数: ' + data.members.length);
+                    // データ概要を表示
+                    const weekKeys = Object.keys(data.weeks || {});
+                    const weeksWithData = weekKeys.filter(wk => {
+                        const d = data.weeks[wk]?.daily;
+                        if (!d) return false;
+                        return Object.values(d).some(m => {
+                            if (!m || typeof m !== 'object') return false;
+                            return Object.values(m).some(arr => {
+                                if (Array.isArray(arr)) return arr.some(v => v > 0);
+                                if (typeof arr === 'object') return Object.values(arr).some(v => v > 0);
+                                return false;
+                            });
+                        });
+                    });
+                    alert(`再読込完了！\nメンバー数: ${data.members.length}\n全週数: ${weekKeys.length}\nデータあり週: ${weeksWithData.join(', ') || 'なし'}`);
                 } else {
                     alert('Firebaseにデータがありません');
                 }
@@ -6636,7 +6809,7 @@
             setTimeout(() => URL.revokeObjectURL(a.href), 1000);
         }
 
-        function clearData() { if (!confirm('全データを削除しますか？')) return; localStorage.removeItem('salesPro_uchimori'); location.reload(); }
+        function clearData() { if (!confirm('全データを削除しますか？')) return; localStorage.removeItem(DATA_KEY); location.reload(); }
 
         function resetLocalOnly() {
             const msg = `【ローカルデータのリセット】
@@ -6650,7 +6823,7 @@
             if (!confirm(msg)) return;
 
             // ローカルストレージをクリア
-            localStorage.removeItem('salesPro_uchimori');
+            localStorage.removeItem(DATA_KEY);
 
             alert('ローカルデータをリセットしました。\n\nページをリロードします。');
             location.reload();
