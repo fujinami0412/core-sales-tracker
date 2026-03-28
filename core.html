@@ -3906,6 +3906,7 @@
         }
 
         function saveReview() {
+            markUserEditing();
             const r = getMemberReview();
             r.mainIssue = document.getElementById('mainIssue').value;
             r.mainCause = document.getElementById('mainCause').value;
@@ -4251,27 +4252,42 @@
         }
 
         // 原因+施策
+        // HTMLエスケープ（施策等のユーザー入力をinnerHTMLに安全に埋め込む）
+        function esc(s) {
+            if (!s) return '';
+            return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        }
+
         function renderCauseActions() {
             const r = getMemberReview();
             if (!r.causeActions) r.causeActions = [{cause:'',actions:[]},{cause:'',actions:[]},{cause:'',actions:[]},{cause:'',actions:[]},{cause:'',actions:[]}];
+            // causeActionsが配列でない場合の修復（Firebase由来）
+            if (!Array.isArray(r.causeActions)) r.causeActions = Object.values(r.causeActions);
+            // 5つに満たない場合は補完
+            while (r.causeActions.length < 5) r.causeActions.push({cause:'',actions:[]});
             document.getElementById('causeActionList').innerHTML = [0,1,2,3,4].map(i => {
                 const ca = r.causeActions[i] || { cause: '', actions: [] };
-                const actionsHtml = (ca.actions || []).map((a,j) => `
+                // actionsが配列でない場合の修復（Firebase由来）
+                if (ca.actions && !Array.isArray(ca.actions)) ca.actions = Object.values(ca.actions);
+                if (!ca.actions) ca.actions = [];
+                const actionsHtml = ca.actions.map((a,j) => {
+                    if (!a) return '';
+                    return `
                     <div class="action-row ${a.done?'completed':''}">
-                        <input type="text" value="${a.text||''}" placeholder="施策を入力..." onchange="updateCauseAction(${i},${j},'text',this.value)">
-                        <input type="text" value="${a.deadline||''}" placeholder="期限" onchange="updateCauseAction(${i},${j},'deadline',this.value)">
+                        <input type="text" value="${esc(a.text)}" placeholder="施策を入力..." onchange="updateCauseAction(${i},${j},'text',this.value)">
+                        <input type="text" value="${esc(a.deadline)}" placeholder="期限" onchange="updateCauseAction(${i},${j},'deadline',this.value)">
                         <select onchange="updateCauseAction(${i},${j},'method',this.value)">
                             <option value="">管理方法</option>
-                            ${['チャット','Googleカレンダー','FB','録画振り返り','アポ','アラーム'].map(m => `<option value="${m}" ${a.method===m?'selected':''}>${m}</option>`).join('')}
+                            ${['チャット','Googleカレンダー','FB','録画振り返り','アポ','アラーム'].map(m => `<option value="${esc(m)}" ${a.method===m?'selected':''}>${esc(m)}</option>`).join('')}
                         </select>
                         <input type="checkbox" ${a.done?'checked':''} onchange="toggleCauseAction(${i},${j})">
                     </div>
-                `).join('');
+                `;}).join('');
                 return `
                     <div class="cause-action-card ${i===0?'primary':''}">
                         <div class="cause-header">
                             <div class="cause-num ${i===0?'primary':''}">${i+1}</div>
-                            <input type="text" class="cause-input" value="${ca.cause||''}" placeholder="原因${i+1}を入力..." onchange="updateCause(${i},this.value)">
+                            <input type="text" class="cause-input" value="${esc(ca.cause)}" placeholder="原因${i+1}を入力..." onchange="updateCause(${i},this.value)">
                         </div>
                         ${actionsHtml}
                         <button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="addCauseAction(${i})">+ 施策追加</button>
@@ -4281,6 +4297,7 @@
         }
 
         function updateCause(i, v) {
+            markUserEditing();
             const r = getMemberReview();
             if (!r.causeActions[i]) r.causeActions[i] = { cause: '', actions: [] };
             r.causeActions[i].cause = v;
@@ -4288,20 +4305,27 @@
         }
 
         function addCauseAction(causeIdx) {
+            markUserEditing();
             const r = getMemberReview();
+            if (!r.causeActions[causeIdx]) r.causeActions[causeIdx] = { cause: '', actions: [] };
             if (!r.causeActions[causeIdx].actions) r.causeActions[causeIdx].actions = [];
             r.causeActions[causeIdx].actions.push({ text: '', deadline: '', method: '', done: false });
             saveData(); renderCauseActions();
         }
 
         function updateCauseAction(causeIdx, actionIdx, key, value) {
-            getMemberReview().causeActions[causeIdx].actions[actionIdx][key] = value;
+            markUserEditing();
+            const ca = getMemberReview().causeActions[causeIdx];
+            if (!ca || !ca.actions || !ca.actions[actionIdx]) return;
+            ca.actions[actionIdx][key] = value;
             saveData();
         }
 
         function toggleCauseAction(causeIdx, actionIdx) {
-            const a = getMemberReview().causeActions[causeIdx].actions[actionIdx];
-            a.done = !a.done;
+            markUserEditing();
+            const ca = getMemberReview().causeActions[causeIdx];
+            if (!ca || !ca.actions || !ca.actions[actionIdx]) return;
+            ca.actions[actionIdx].done = !ca.actions[actionIdx].done;
             saveData(); renderCauseActions();
         }
 
