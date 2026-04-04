@@ -24,7 +24,7 @@
         const auth = firebase.auth();
         // file://プロトコルでのIndexedDB問題を回避するため、永続化をlocalStorageに設定
         auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(e => {
-            console.warn('Auth永続化設定エラー（file://では正常）:', e.message);
+            
         });
         const TEAM_ID = 'uchimori';
         const DATA_KEY = 'salesPro_' + TEAM_ID;
@@ -902,7 +902,7 @@
     // アポ管理ツールからメールマッピングを取得
     async function fetchEmailMapping() {
         if (!APPOINTMENT_MANAGER_URL) {
-            console.log('アポ管理ツールURL未設定 → メールマッピングをスキップ（名前ベースにフォールバック）');
+            
             return;
         }
         try {
@@ -912,9 +912,9 @@
             // { supabase_user_id: email } のマップを構築
             supabaseEmailMap = {};
             mapping.forEach(u => { supabaseEmailMap[u.id] = u.email; });
-            console.log('Supabaseメールマッピング取得:', Object.keys(supabaseEmailMap).length, '件');
+            
         } catch (e) {
-            console.warn('メールマッピング取得失敗（名前ベースにフォールバック）:', e.message);
+            
         }
     }
 
@@ -1255,7 +1255,7 @@
 
             <!-- NG理由内訳 -->
             <div class="section">
-                <h2>NG理由内訳 <span id="sNgTotal" style="font-size:14px;color:#94a3b8">(0件)</span> <button onclick="debugNgData()" style="font-size:10px;padding:2px 6px;background:#ef4444;border:none;color:white;border-radius:4px;cursor:pointer">デバッグ</button></h2>
+                <h2>NG理由内訳 <span id="sNgTotal" style="font-size:14px;color:#94a3b8">(0件)</span></h2>
                 <div id="summaryNgBreakdown" class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr))"></div>
             </div>
 
@@ -1685,7 +1685,6 @@
             <div class="section">
                 <h2>メンバー別 月間予算・目標設定</h2>
                 <p style="font-size:12px;color:#94a3b8;margin-bottom:12px" id="settingsHint">※ 上部のメンバー選択で設定対象を切り替えられます</p>
-                <button class="btn" style="background:#6366f1;margin-bottom:12px;font-size:11px" onclick="debugShowSettings()">🔍 デバッグ: データ確認</button>
 
                 <div id="settingsEditableArea">
                     <h3 style="font-size:14px;color:#94a3b8;margin-bottom:8px">月間予算</h3>
@@ -1912,7 +1911,39 @@
         let currentAuthUser = null;   // firebase.User
         let currentMemberId = null;   // authから導出したmemberId
         let isAdmin = false;          // userMapのisAdminフラグ
-        let adminEditMode = false;    // 管理者編集モードON/OFF
+        let adminEditMode = false;
+
+        // === Performance: Memoization Cache ===
+        const _cache = {
+          memberGoals: {},
+          totals: null,
+          totalsKey: '',
+          filteredMembers: null,
+          filteredMembersKey: '',
+          myAccounts: null,
+          myAccountsKey: ''
+        };
+        function invalidateCache() {
+          _cache.memberGoals = {};
+          _cache.totals = null;
+          _cache.totalsKey = '';
+          _cache.filteredMembers = null;
+          _cache.filteredMembersKey = '';
+          _cache.myAccounts = null;
+          _cache.myAccountsKey = '';
+        }
+
+        // === Performance: Render Batching ===
+        let _renderPending = false;
+        function scheduleRender() {
+          if (_renderPending) return;
+          _renderPending = true;
+          requestAnimationFrame(() => {
+            _renderPending = false;
+            renderActiveTab();
+          });
+        }
+    // 管理者編集モードON/OFF
         let userMap = {};             // teams/uchimori/userMap のキャッシュ
 
         // ページ状態を保存
@@ -2163,7 +2194,7 @@
                     data.members.push(newMember);
                     // Firebaseにメンバーリストを保存
                     await database.ref('teams/' + TEAM_ID + '/members').set(data.members);
-                    console.log('新メンバー自動追加:', newName, memberId);
+                    
                 }
 
                 // userMapが空なら最初のユーザー → 自動Admin
@@ -2180,7 +2211,7 @@
                 isAdmin = isFirstUser;
 
                 if (isFirstUser) {
-                    console.log('🔑 最初のユーザーとして管理者に設定されました');
+                    
                 }
 
                 // アプリ表示
@@ -2232,7 +2263,7 @@
                 if (user) {
                     // ログイン済み
                     currentAuthUser = user;
-                    console.log('認証成功:', user.email, user.uid);
+                    
                     showAuthLoading();
                     loadData();
                     // Firebaseから最新データを取得してからメンバー紐付けを行う
@@ -2254,7 +2285,7 @@
                             firebaseDataLoaded = true;
                             // FirebaseデータでlocalStorageを更新（ローカルの古いデータを上書き）
                             localStorage.setItem(DATA_KEY, JSON.stringify(data));
-                            console.log('✅ Firebase初回データ取得完了。メンバー数:', data.members.length, 'weeks数:', Object.keys(data.weeks || {}).length);
+                            
                         }
                     } catch (e) {
                         console.error('初回データ取得エラー:', e);
@@ -5550,18 +5581,18 @@
 
         // 選択されたメンバーのアカウントを取得
         function getMyAccounts() {
-            console.log('🔍 getMyAccounts - selectedMember:', selectedMember);
-            console.log('🔍 全アカウント:', data.accounts.map(a => ({name: a.name, ownerId: a.ownerId})));
+            
+            
 
             // 「全体」選択時は全アカウント表示
             if (selectedMember === 'all') {
-                console.log('🔍 全体選択 - 全アカウント表示');
+                
                 return data.accounts;
             }
 
             // 特定メンバー選択時はそのメンバーのアカウントのみ
             const filtered = data.accounts.filter(acc => acc.ownerId === selectedMember);
-            console.log('🔍 フィルタ後:', filtered.map(a => a.name));
+            
             return filtered;
         }
 
@@ -5576,8 +5607,8 @@
         let settingsSelectedMember = 'all';
 
         function renderSettings() {
-            console.log('=== renderSettings開始 ===');
-            console.log('メンバー数:', data.members.length);
+            
+            
 
             // アポ管理ツールURL表示を更新
             try {
@@ -5611,7 +5642,7 @@
             try {
                 document.getElementById('memberList').innerHTML = data.members.length === 0 ? '<p style="color:#64748b">メンバーを追加してください</p>' :
                     data.members.map(m => `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px;background:#0f172a;border-radius:6px;margin-bottom:6px"><span>${m.name}</span><button class="btn btn-danger btn-sm" onclick="deleteMember('${m.id}')">削除</button></div>`).join('');
-                console.log('✅ メンバーリスト更新完了');
+                
             } catch (e) {
                 console.error('❌ メンバーリスト更新エラー:', e);
             }
@@ -5670,8 +5701,8 @@
                 return;
             }
             settingsSelectedMember = selectEl.value;
-            console.log('=== メンバー変更 ===');
-            console.log('選択されたメンバーID:', settingsSelectedMember);
+            
+            
 
             // 設定を読み込み
             loadMemberSettings(settingsSelectedMember);
@@ -5787,13 +5818,13 @@
         }
 
         function loadMemberSettings(memberId) {
-            console.log('loadMemberSettings呼び出し:', memberId);
+            
             let b, mo, ig;
             if (memberId === 'all') {
                 b = data.settings.budget || {};
                 mo = data.settings.monthly || {};
                 ig = {}; // 全体選択時はインスタ目標は空
-                console.log('全体設定を読み込み');
+                
             } else {
                 const monthKey = getMonthKey();
                 if (!data.settings.memberSettings) data.settings.memberSettings = {};
@@ -5806,11 +5837,11 @@
                 b = data.settings.memberSettings[memberId][monthKey].budget || {};
                 mo = data.settings.memberSettings[memberId][monthKey].monthly || {};
                 ig = data.settings.memberSettings[memberId][monthKey].instagram || {};
-                console.log('メンバー個別設定を読み込み:', memberId, '月:', monthKey);
+                
             }
-            console.log('budget:', JSON.stringify(b));
-            console.log('monthly:', JSON.stringify(mo));
-            console.log('instagram:', JSON.stringify(ig));
+            
+            
+            
 
             // 入力フィールドに値を設定
             const fields = [
@@ -5843,7 +5874,7 @@
                 if (el) {
                     const newVal = val || 0;
                     const oldVal = el.value;
-                    console.log(`${id}: ${oldVal} → ${newVal}`);
+                    
                     el.value = newVal;
                     // 値が変わった場合はハイライト
                     if (String(oldVal) !== String(newVal)) {
@@ -5855,7 +5886,7 @@
                     console.error(`要素が見つかりません: ${id}`);
                 }
             });
-            console.log('=== 設定読み込み完了 ===');
+            
         }
 
         function saveSettings() {
@@ -5866,13 +5897,13 @@
 
             // 全体選択時は保存不可
             if (targetMember === 'all') {
-                console.log('全体選択時は保存できません');
+                
                 alert('⚠️ メンバーを選択してください\n\n「全体」選択中は目標を保存できません。\nヘッダーのドロップダウンで特定のメンバーを選択してから入力してください。');
                 return;
             }
 
-            console.log('=== 設定保存 ===');
-            console.log('保存先:', targetMember);
+            
+            
 
             const budgetData = {
                 post: parseInt(document.getElementById('bPost').value, 10) || 0,
@@ -5894,8 +5925,8 @@
                 seiyaku: parseInt(document.getElementById('mSeiyaku').value, 10) || 0
             };
 
-            console.log('保存するbudget:', JSON.stringify(budgetData));
-            console.log('保存するmonthly:', JSON.stringify(monthlyData));
+            
+            
 
             // 個別メンバーの設定として保存（月ごと）
             const monthKey = getMonthKey();
@@ -5919,13 +5950,16 @@
                 doinExec: parseInt(document.getElementById('igGoalDoinExec').value, 10) || 0,
                 seiyaku: parseInt(document.getElementById('igGoalSeiyaku').value, 10) || 0
             };
-            console.log('メンバー個別設定として保存しました:', targetMember, '月:', monthKey);
+            
 
             saveData(); renderSummary(); renderReview(); renderInstagram();
         }
 
         // メンバーの目標を取得（個人設定があれば個人、なければ0）
         function getMemberGoals(memberId) {
+            const cacheKey = memberId + '_' + getMonthKey();
+            if (_cache.memberGoals[cacheKey]) return _cache.memberGoals[cacheKey];
+
             const memberSettings = data.settings.memberSettings;
             const monthKey = getMonthKey();
 
@@ -6086,24 +6120,24 @@
 
         function addMember() {
             try {
-                console.log('=== addMember開始 ===');
+                
                 const name = document.getElementById('newMemberName').value.trim();
-                console.log('入力された名前:', name);
+                
                 if (!name) { alert('名前を入力してください'); return; }
 
                 const newMember = { id: 'mem_' + Date.now(), name };
-                console.log('新しいメンバー:', newMember);
+                
                 data.members.push(newMember);
-                console.log('現在のメンバー数:', data.members.length);
+                
 
                 saveData();
                 closeModal('memberModal');
                 document.getElementById('newMemberName').value = '';
 
-                console.log('renderAll()を呼び出します');
+                
                 renderAll();
 
-                console.log('✅ メンバー追加完了');
+                
             } catch (e) {
                 console.error('❌ メンバー追加エラー:', e);
                 alert('エラーが発生しました: ' + e.message);
@@ -6163,7 +6197,7 @@
                 };
                 await backupRef.set(backupData);
                 await cleanupOldBackups();
-                console.log('📦 バックアップ作成:', reason);
+                
             } catch (err) {
                 console.error('バックアップ作成エラー:', err);
             }
@@ -6296,7 +6330,7 @@
 
             // データ保護: Firebase未取得状態での保存を阻止
             if (!firebaseDataLoaded) {
-                console.warn('⚠️ Firebaseデータ未取得状態での保存をスキップ');
+                
                 if (text) text.textContent = '⚠️ 同期待ち';
                 if (dot) dot.className = 'sync-dot offline';
                 return;
@@ -6313,7 +6347,7 @@
                     // ※ ただしFirebaseの初回読み込み前にここに来ると危険なため、
                     //    firebaseDataLoadedフラグで保護
                     if (!firebaseDataLoaded) {
-                        console.warn('⚠️ Firebaseデータ未取得状態での保存をスキップ');
+                        
                         return; // トランザクション中止（undefinedを返す）
                     }
                     return JSON.parse(JSON.stringify(localData));
@@ -6371,7 +6405,7 @@
                     debugSaveCount++;
                     const el = document.getElementById('debugSaveCount');
                     if (el) el.textContent = '送信: ' + debugSaveCount + '回';
-                    console.log('🔥 Firebase保存完了 v3.2 (transaction+smartMerge), 送信#' + debugSaveCount);
+                    
                     if (text) text.textContent = '✓ 保存完了';
                     if (dot) dot.className = 'sync-dot';
                     setTimeout(() => { updateSyncStatus(); }, 2000);
@@ -6399,7 +6433,7 @@
                 // membersが配列であることを確認
                 if (data.members && !Array.isArray(data.members)) {
                     data.members = Object.values(data.members);
-                    console.log('⚠️ loadData: membersをオブジェクトから配列に変換しました');
+                    
                 }
                 if (!data.members) {
                     data.members = [];
@@ -6407,7 +6441,7 @@
                 // accountsの配列修復
                 if (data.accounts && !Array.isArray(data.accounts)) {
                     data.accounts = Object.values(data.accounts);
-                    console.log('⚠️ loadData: accountsをオブジェクトから配列に変換しました');
+                    
                 }
                 if (!data.accounts) data.accounts = [];
                 if (data.weeks) {
@@ -6535,6 +6569,11 @@
         let userZeroChanges = {}; // { "weekKey/memberId/metricKey/dayIndex": true }
 
         function setupFirebaseListener() {
+            // Clean up previous listener
+
+            database.ref('teams/' + TEAM_ID).off('value');
+
+
             database.ref('teams/' + TEAM_ID).on('value', (snapshot) => {
                 const firebaseData = snapshot.val();
                 if (!firebaseData) return;
@@ -6551,10 +6590,10 @@
                     const localWeekCount = Object.keys(data.weeks || {}).length;
                     const fbWeekCount = Object.keys(firebaseData.weeks || {}).length;
                     if (localWeekCount >= fbWeekCount && localWeekCount > 0) {
-                        console.log('⚠️ ローカルの方が新しい → Firebaseに反映（データ検証OK）');
+                        
                         saveToFirebase();
                     } else {
-                        console.warn('⚠️ ローカルが新しいがデータが少ない（local:', localWeekCount, 'weeks vs firebase:', fbWeekCount, 'weeks）→ Firebase優先');
+                        
                         // Firebaseデータで上書き（安全策）
                     }
                     return;
@@ -6668,12 +6707,12 @@
                     }
                 }
 
-                console.log('🔥 Firebase同期完了 v3.2 (smartMerge+preserve) 受信#' + debugListenerCount + ', メンバー数:', data.members.length);
+                
             });
             firebaseInitialized = true;
             firebaseDataLoaded = true; // リスナー設定時点でデータ取得済みとみなす
             updateSyncStatus();
-            console.log('🔥 Firebaseリスナー設定完了 v4.0 (ゼロ上書き防止+データ保護)');
+            
         }
 
         // 強制再読込: Firebaseから最新データを完全に取得（localStorageを完全上書き）
@@ -6727,7 +6766,7 @@
         function saveAll() { saveReview(); saveData(); }
 
         async function loadFromCloud() {
-            console.log('🔥 Firebaseリアルタイム同期中...');
+            
             return true;
         }
 
@@ -6862,8 +6901,8 @@
          * （calcMemberTotals と同様だが、任意の年月を指定可能）
          */
         function calcMemberTotalsForMonth(memberId, year, month) {
-            console.log(`[calcMemberTotalsForMonth] memberId=${memberId}, year=${year}, month=${month}`);
-            console.log(`[calcMemberTotalsForMonth] data.weeks keys:`, Object.keys(data.weeks || {}));
+            
+            
             const t = {};
             metrics.forEach(c => c.items.forEach(m => t[m.key] = 0));
 
@@ -6871,7 +6910,7 @@
             for (let w = 1; w <= maxW; w++) {
                 const weekKey = `${year}-${month}-W${w}`;
                 const weekData = data.weeks[weekKey];
-                console.log(`[calcMemberTotalsForMonth] ${weekKey}: exists=${!!weekData}, hasDaily=${!!(weekData?.daily)}, hasMember=${!!(weekData?.daily?.[memberId])}`);
+                
                 if (weekData && weekData.daily && weekData.daily[memberId]) {
                     const d = weekData.daily[memberId];
                     metrics.forEach(c => c.items.forEach(met => {
@@ -6882,7 +6921,7 @@
                     }));
                 }
             }
-            console.log(`[calcMemberTotalsForMonth] 結果:`, JSON.stringify(t));
+            
             return t;
         }
 
@@ -6899,7 +6938,7 @@
                 mendanExecRate: safeDiv(totals.mendanExec, totals.mendanGet),  // 面談実施率 = 面談実施/面談獲得
                 seiyakuRate: safeDiv(totals.seiyaku, totals.doinExec)          // 成約率 = 成約/動員実施
             };
-            console.log(`[calcRatesFromTotals] 算出率:`, JSON.stringify(rates));
+            
             return rates;
         }
 
@@ -6907,7 +6946,7 @@
          * Change 3: メンバーの月別パーセンテージをFirebaseに保存する
          */
         function saveMonthlyRates(memberId, monthKey) {
-            console.log(`[saveMonthlyRates] 開始: memberId=${memberId}, monthKey=${monthKey}`);
+            
 
             if (!memberId || memberId === 'all') {
                 console.error('[saveMonthlyRates] 無効なmemberId:', memberId);
@@ -6951,7 +6990,7 @@
             if (!data.monthlyRates[memberId]) data.monthlyRates[memberId] = {};
             data.monthlyRates[memberId][monthKey] = rateData;
 
-            console.log(`[saveMonthlyRates] 保存データ:`, JSON.stringify(rateData));
+            
 
             // Firebaseに保存
             saveData();
@@ -6963,15 +7002,15 @@
          * Change 3: 過去2ヶ月の平均変換率を取得する
          */
         function getAvgPastRates(memberId) {
-            console.log(`[getAvgPastRates] 開始: memberId=${memberId}`);
+            
 
             if (!memberId || memberId === 'all') {
-                console.log('[getAvgPastRates] 無効なmemberId、null返却');
+                
                 return null;
             }
 
             if (!data.monthlyRates || !data.monthlyRates[memberId]) {
-                console.log('[getAvgPastRates] monthlyRatesデータなし、null返却');
+                
                 return null;
             }
 
@@ -6987,13 +7026,13 @@
             const pastKeys = monthKeys.filter(k => k !== currentMonthKey);
 
             if (pastKeys.length === 0) {
-                console.log('[getAvgPastRates] 過去データなし、null返却');
+                
                 return null;
             }
 
             // 最大2ヶ月分取得
             const keysToUse = pastKeys.slice(0, 2);
-            console.log(`[getAvgPastRates] 使用する月:`, keysToUse);
+            
 
             const rateKeys = ['apoGetRate', 'apoExecRate', 'doinGetRate', 'doinExecRate', 'mendanExecRate', 'seiyakuRate'];
             const avgRates = {};
@@ -7011,7 +7050,7 @@
                 avgRates[rk] = count > 0 ? sum / count : 0;
             });
 
-            console.log(`[getAvgPastRates] 平均率(${keysToUse.length}ヶ月分):`, JSON.stringify(avgRates));
+            
             return { rates: avgRates, monthsUsed: keysToUse.length, months: keysToUse };
         }
 
@@ -7020,7 +7059,7 @@
         // ===========================================================
 
         function autoCalcGoals() {
-            console.log('[autoCalcGoals] 予算から目標を自動計算');
+            
 
             const budgetFields = [
                 { budget: 'bPost', goal: 'mPost' },
@@ -7041,7 +7080,7 @@
                     // 小数点以下が.0でない場合は切り上げ
                     const goalVal = (calculated % 1 === 0) ? calculated : Math.ceil(calculated);
                     goalEl.value = goalVal;
-                    console.log(`[autoCalcGoals] ${budget}(${budgetVal}) x 1.2 = ${calculated} → ${goalVal}`);
+                    
 
                     // ハイライトアニメーション
                     goalEl.classList.remove('settings-updated');
@@ -7069,7 +7108,7 @@
         // ===========================================================
 
         function autoSetTargetsFromRatesUI() {
-            console.log('[autoSetTargetsFromRatesUI] 開始');
+            
 
             // 現在選択中のメンバーを取得
             const targetMember = (settingsSelectedMember && settingsSelectedMember !== 'all')
@@ -7104,12 +7143,12 @@
             // 逆算して目標を自動設定
             autoSetTargetsFromRates(targetMember, rates, seiyakuGoal);
 
-            console.log(`[autoSetTargetsFromRatesUI] ${memberName}の目標を過去${pastData.monthsUsed}ヶ月平均から自動設定完了`);
+            
         }
 
         function autoSetTargetsFromRates(memberId, rates, seiyakuGoal) {
-            console.log(`[autoSetTargetsFromRates] memberId=${memberId}, seiyakuGoal=${seiyakuGoal}`);
-            console.log(`[autoSetTargetsFromRates] 使用率:`, JSON.stringify(rates));
+            
+            
 
             // 逆算: 成約目標から各指標を求める
             // 動員実施必要数 = ceil(成約目標 / 成約率)
@@ -7137,7 +7176,7 @@
                 ? Math.ceil(apoGetGoal / rates.apoGetRate)
                 : apoGetGoal;
 
-            console.log(`[autoSetTargetsFromRates] 逆算結果: post=${postGoal}, apoGet=${apoGetGoal}, apoExec=${apoExecGoal}, doinGet=${doinGetGoal}, doinExec=${doinExecGoal}, seiyaku=${seiyakuGoal}`);
+            
 
             // 目標フィールドに設定
             const setField = (id, val) => {
@@ -7187,7 +7226,7 @@
         // ===========================================================
 
         function checkRatesDivergence(memberId) {
-            console.log(`[checkRatesDivergence] 開始: memberId=${memberId}`);
+            
             const warningsEl = document.getElementById('ratesDivergenceWarnings');
             if (!warningsEl) return;
 
@@ -7254,7 +7293,7 @@
             }
 
             warningsEl.innerHTML = html;
-            console.log(`[checkRatesDivergence] 乖離チェック完了、警告数: ${hasWarnings ? 'あり' : 'なし'}`);
+            
         }
 
         // ===========================================================
@@ -7262,7 +7301,7 @@
         // ===========================================================
 
         function previewAndSaveMonthlyRates() {
-            console.log('[previewAndSaveMonthlyRates] 開始');
+            
 
             const targetMember = (settingsSelectedMember && settingsSelectedMember !== 'all')
                 ? settingsSelectedMember
@@ -7364,7 +7403,7 @@
         }
 
         function showPastRatesHistory() {
-            console.log('[showPastRatesHistory] 開始');
+            
             const el = document.getElementById('pastRatesHistory');
             if (!el) return;
 
