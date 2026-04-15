@@ -1037,9 +1037,30 @@
                         style="width:100%;padding:12px;font-size:16px;background:#6366f1;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:600">
                     ログイン
                 </button>
-                <p style="color:#94a3b8;font-size:13px;margin-top:16px">
+                <p style="color:#94a3b8;font-size:13px;margin-top:12px">
+                    <a href="#" onclick="showForgotPasswordForm();return false" style="color:#f59e0b;text-decoration:underline">パスワードをお忘れの方</a>
+                </p>
+                <p style="color:#94a3b8;font-size:13px;margin-top:8px">
                     アカウントがない場合は
                     <a href="#" onclick="showSignupForm();return false" style="color:#6366f1;text-decoration:underline">新規登録</a>
+                </p>
+            </div>
+
+            <!-- パスワードリセットフォーム -->
+            <div id="forgotPasswordForm" style="display:none">
+                <p style="color:#e2e8f0;font-size:14px;margin-bottom:16px">登録済みのメールアドレスを入力してください。パスワードリセット用のメールが届きます。</p>
+                <input type="email" id="resetEmail" placeholder="メールアドレス"
+                       style="width:100%;padding:12px 16px;font-size:15px;background:#0f172a;border:2px solid #334155;color:#e2e8f0;border-radius:8px;margin-bottom:16px"
+                       onkeypress="if(event.key==='Enter')handleForgotPassword()">
+                <button onclick="handleForgotPassword()" id="resetBtn"
+                        style="width:100%;padding:12px;font-size:16px;background:#f59e0b;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:600">
+                    リセットメールを送信
+                </button>
+                <p id="resetSuccess" style="color:#22c55e;font-size:13px;margin-top:12px;display:none">
+                    リセットメールを送信しました。メールを確認してください。
+                </p>
+                <p style="color:#94a3b8;font-size:13px;margin-top:12px">
+                    <a href="#" onclick="showLoginForm();return false" style="color:#6366f1;text-decoration:underline">ログインに戻る</a>
                 </p>
             </div>
 
@@ -2027,6 +2048,7 @@
         function showLoginForm() {
             document.getElementById('loginForm').style.display = 'block';
             document.getElementById('signupForm').style.display = 'none';
+            document.getElementById('forgotPasswordForm').style.display = 'none';
             document.getElementById('memberLinkForm').style.display = 'none';
             document.getElementById('authLoading').style.display = 'none';
             hideAuthError();
@@ -2034,13 +2056,46 @@
         function showSignupForm() {
             document.getElementById('loginForm').style.display = 'none';
             document.getElementById('signupForm').style.display = 'block';
+            document.getElementById('forgotPasswordForm').style.display = 'none';
             document.getElementById('memberLinkForm').style.display = 'none';
             document.getElementById('authLoading').style.display = 'none';
             hideAuthError();
         }
+        function showForgotPasswordForm() {
+            document.getElementById('loginForm').style.display = 'none';
+            document.getElementById('signupForm').style.display = 'none';
+            document.getElementById('forgotPasswordForm').style.display = 'block';
+            document.getElementById('memberLinkForm').style.display = 'none';
+            document.getElementById('authLoading').style.display = 'none';
+            document.getElementById('resetSuccess').style.display = 'none';
+            hideAuthError();
+        }
+        async function handleForgotPassword() {
+            const email = document.getElementById('resetEmail').value.trim();
+            if (!email) { showAuthError('メールアドレスを入力してください'); return; }
+            hideAuthError();
+            const btn = document.getElementById('resetBtn');
+            btn.disabled = true; btn.textContent = '送信中...';
+            try {
+                await auth.sendPasswordResetEmail(email);
+                document.getElementById('resetSuccess').style.display = 'block';
+                btn.disabled = false; btn.textContent = 'リセットメールを送信';
+            } catch (err) {
+                console.error('パスワードリセットエラー:', err.code, err.message);
+                const msgs = {
+                    'auth/user-not-found': 'このメールアドレスのアカウントが見つかりません',
+                    'auth/invalid-email': 'メールアドレスの形式が正しくありません',
+                    'auth/too-many-requests': 'リクエストが多すぎます。しばらく待ってください',
+                    'auth/network-request-failed': 'ネットワークエラーです。インターネット接続を確認してください'
+                };
+                showAuthError(msgs[err.code] || 'エラー: ' + (err.code || '') + ' ' + err.message);
+                btn.disabled = false; btn.textContent = 'リセットメールを送信';
+            }
+        }
         function showAuthLoading() {
             document.getElementById('loginForm').style.display = 'none';
             document.getElementById('signupForm').style.display = 'none';
+            document.getElementById('forgotPasswordForm').style.display = 'none';
             document.getElementById('memberLinkForm').style.display = 'none';
             document.getElementById('authLoading').style.display = 'block';
             hideAuthError();
