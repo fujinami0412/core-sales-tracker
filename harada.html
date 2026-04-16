@@ -1733,7 +1733,7 @@
                     </div>
                     <div style="margin-top:8px;margin-bottom:8px">
                         <button class="btn" style="background:#8b5cf6;font-size:12px" onclick="autoSetTargetsFromRatesUI()">過去実績から目標自動設定</button>
-                        <span style="font-size:11px;color:#64748b;margin-left:8px">過去2ヶ月の変換率を元に逆算</span>
+                        <span style="font-size:11px;color:#64748b;margin-left:8px">過去3ヶ月の変換率を元に逆算</span>
                     </div>
 
                     <!-- 乖離チェック表示エリア -->
@@ -2178,14 +2178,30 @@
             }
         }
 
+        // スーパー管理者（メンバー紐付けの有無に関わらず管理者権限を付与するメール一覧）
+        const SUPER_ADMIN_EMAILS = ['namiyama1903@gmail.com'];
+
+        function isSuperAdminEmail(email) {
+            if (!email) return false;
+            return SUPER_ADMIN_EMAILS.map(e => e.toLowerCase()).includes(email.toLowerCase());
+        }
+
         async function loadUserMap() {
             try {
                 const snapshot = await database.ref('teams/' + TEAM_ID + '/userMap').once('value');
                 userMap = snapshot.val() || {};
                 const uid = currentAuthUser.uid;
+                const superAdmin = isSuperAdminEmail(currentAuthUser.email);
                 if (userMap[uid]) {
                     currentMemberId = userMap[uid].memberId;
-                    isAdmin = !!userMap[uid].isAdmin;
+                    isAdmin = !!userMap[uid].isAdmin || superAdmin;
+                    // スーパー管理者メールで未昇格の場合、Firebaseに永続化
+                    if (superAdmin && !userMap[uid].isAdmin) {
+                        try {
+                            await database.ref('teams/' + TEAM_ID + '/userMap/' + uid + '/isAdmin').set(true);
+                            userMap[uid].isAdmin = true;
+                        } catch (e) { console.error('スーパー管理者昇格の永続化エラー:', e); }
+                    }
                     return true; // マッピングあり
                 }
                 return false; // マッピングなし
@@ -2248,17 +2264,20 @@
                 }
 
                 // userMapが空なら最初のユーザー → 自動Admin
+                // スーパー管理者メールも無条件でAdmin
                 const isFirstUser = Object.keys(userMap).length === 0;
+                const superAdmin = isSuperAdminEmail(currentAuthUser.email);
+                const grantedAdmin = isFirstUser || superAdmin;
                 const entry = {
                     memberId: memberId,
                     email: currentAuthUser.email,
-                    isAdmin: isFirstUser,
+                    isAdmin: grantedAdmin,
                     linkedAt: Date.now()
                 };
                 await database.ref('teams/' + TEAM_ID + '/userMap/' + uid).set(entry);
                 userMap[uid] = entry;
                 currentMemberId = memberId;
-                isAdmin = isFirstUser;
+                isAdmin = grantedAdmin;
 
                 if (isFirstUser) {
                 }
@@ -7016,8 +7035,11 @@
             return rateData;
         }
 
+        // 過去実績の分析に使う月数上限（直近Nヶ月分の平均を取る）
+        const PAST_RATES_MONTHS_LIMIT = 3;
+
         /**
-         * Change 3: 過去2ヶ月の平均変換率を取得する
+         * 過去3ヶ月の平均変換率を取得する
          */
         function getAvgPastRates(memberId) {
             if (!memberId || memberId === 'all') {
@@ -7043,8 +7065,8 @@
                 return null;
             }
 
-            // 最大2ヶ月分取得
-            const keysToUse = pastKeys.slice(0, 2);
+            // 最大Nヶ月分取得（PAST_RATES_MONTHS_LIMIT で制御）
+            const keysToUse = pastKeys.slice(0, PAST_RATES_MONTHS_LIMIT);
             const rateKeys = ['apoGetRate', 'apoExecRate', 'doinGetRate', 'doinExecRate', 'mendanExecRate', 'seiyakuRate'];
             const avgRates = {};
 
