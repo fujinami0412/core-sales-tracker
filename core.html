@@ -1736,7 +1736,7 @@
                     </div>
                     <div style="margin-top:8px;margin-bottom:8px">
                         <button class="btn" style="background:#8b5cf6;font-size:12px" onclick="autoSetTargetsFromRatesUI()">過去実績から目標自動設定</button>
-                        <span style="font-size:11px;color:#64748b;margin-left:8px">過去2ヶ月の変換率を元に逆算</span>
+                        <span style="font-size:11px;color:#64748b;margin-left:8px">過去3ヶ月の変換率を元に逆算</span>
                     </div>
 
                     <!-- 乖離チェック表示エリア -->
@@ -7090,8 +7090,11 @@
             return rateData;
         }
 
+        // 過去実績の分析に使う月数上限（直近Nヶ月分の平均を取る）
+        const PAST_RATES_MONTHS_LIMIT = 3;
+
         /**
-         * Change 3: 過去2ヶ月の平均変換率を取得する
+         * 過去3ヶ月の平均変換率を取得する
          */
         function getAvgPastRates(memberId) {
             
@@ -7122,8 +7125,8 @@
                 return null;
             }
 
-            // 最大2ヶ月分取得
-            const keysToUse = pastKeys.slice(0, 2);
+            // 最大Nヶ月分取得（PAST_RATES_MONTHS_LIMIT で制御）
+            const keysToUse = pastKeys.slice(0, PAST_RATES_MONTHS_LIMIT);
             
 
             const rateKeys = ['apoGetRate', 'apoExecRate', 'doinGetRate', 'doinExecRate', 'mendanExecRate', 'seiyakuRate'];
