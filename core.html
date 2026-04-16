@@ -1364,7 +1364,7 @@
                     </div>
                 </div>
                 <div style="margin-bottom:16px;display:flex;gap:8px;flex-wrap:wrap">
-                    <button class="btn btn-primary btn-sm" onclick="openVideoUploadModal()">動画を一括アップロード（1ヶ月分）</button>
+                    <button class="btn btn-primary btn-sm" onclick="openVideoUploadModal()">動画を一括アップロード（3ヶ月分）</button>
                     <button class="btn btn-primary btn-sm" onclick="document.getElementById('videoCsvImport').click()">動画CSVインポート</button>
                     <input type="file" id="videoCsvImport" accept=".csv" style="display:none" onchange="importVideoCsv(event)">
                     <button class="btn btn-secondary btn-sm" onclick="exportNippoCsv()">CSVエクスポート</button>
@@ -1836,9 +1836,9 @@
     <!-- 動画一括アップロードモーダル -->
     <div class="modal-overlay" id="videoUploadModal">
         <div class="modal" style="max-width:700px">
-            <h3>動画を一括アップロード（1ヶ月分）</h3>
-            <p style="margin-bottom:12px;color:#94a3b8;font-size:13px">各日のインプット動画URLをまとめて設定できます。</p>
-            <div id="videoUploadList" style="max-height:400px;overflow-y:auto"></div>
+            <h3>動画を一括アップロード（3ヶ月分）</h3>
+            <p style="margin-bottom:12px;color:#94a3b8;font-size:13px">前月・当月・翌月の各日のインプット動画URLをまとめて設定できます。</p>
+            <div id="videoUploadList" style="max-height:65vh;overflow-y:auto"></div>
             <div class="modal-actions">
                 <button class="btn btn-secondary" onclick="closeModal('videoUploadModal')">キャンセル</button>
                 <button class="btn btn-primary" onclick="saveVideoUrls()">保存</button>
@@ -4929,41 +4929,74 @@
             saveData();
         }
 
+        // 動画一括アップロード対象の月オフセット（前月・当月・翌月の3ヶ月分）
+        const VIDEO_UPLOAD_MONTH_OFFSETS = [-1, 0, 1];
+
+        // オフセットから年月を解決
+        function resolveMonthByOffset(offset) {
+            let y = currentYear;
+            let m = currentMonth + offset;
+            while (m < 1) { m += 12; y--; }
+            while (m > 12) { m -= 12; y++; }
+            return { year: y, month: m };
+        }
+
         function openVideoUploadModal() {
-            const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
-            const monthVideos = getMonthVideos();
+            if (!data.monthVideos) data.monthVideos = {};
 
-            let html = `<p style="margin-bottom:12px;font-weight:600">${currentYear}年${currentMonth}月の動画URL</p>`;
+            let html = '';
 
-            for (let day = 1; day <= daysInMonth; day++) {
-                const dateStr = `${currentYear}-${String(currentMonth).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-                const date = new Date(currentYear, currentMonth - 1, day);
-                const dayOfWeek = ['日','月','火','水','木','金','土'][date.getDay()];
-                const videoUrl = monthVideos[dateStr] || '';
+            VIDEO_UPLOAD_MONTH_OFFSETS.forEach(offset => {
+                const { year: y, month: m } = resolveMonthByOffset(offset);
+                const monthKey = `${y}-${m}`;
+                if (!data.monthVideos[monthKey]) data.monthVideos[monthKey] = {};
+                const monthVideos = data.monthVideos[monthKey];
+                const daysInMonth = new Date(y, m, 0).getDate();
 
-                html += `
-                    <div class="video-upload-row">
-                        <div class="date-label">${currentMonth}/${day}（${dayOfWeek}）</div>
-                        <input type="text" class="nippo-video-url" id="video_${dateStr}" value="${videoUrl}" placeholder="動画URL（YouTube, Vimeo, Google Drive等）">
-                    </div>
-                `;
-            }
+                const label = offset === -1 ? '前月' : (offset === 0 ? '当月' : '翌月');
+                html += `<div style="margin-bottom:18px">
+                    <h4 style="color:#38bdf8;margin:8px 0;padding-bottom:6px;border-bottom:1px solid #334155;font-size:14px">
+                        ${y}年${m}月 <span style="color:#64748b;font-weight:400;font-size:12px;margin-left:8px">${label}</span>
+                    </h4>`;
+
+                for (let day = 1; day <= daysInMonth; day++) {
+                    const dateStr = `${y}-${String(m).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+                    const date = new Date(y, m - 1, day);
+                    const dayOfWeek = ['日','月','火','水','木','金','土'][date.getDay()];
+                    const videoUrl = monthVideos[dateStr] || '';
+
+                    html += `
+                        <div class="video-upload-row">
+                            <div class="date-label">${m}/${day}（${dayOfWeek}）</div>
+                            <input type="text" class="nippo-video-url" id="video_${dateStr}" value="${videoUrl}" placeholder="動画URL（YouTube, Vimeo, Google Drive等）">
+                        </div>
+                    `;
+                }
+                html += `</div>`;
+            });
 
             document.getElementById('videoUploadList').innerHTML = html;
             openModal('videoUploadModal');
         }
 
         function saveVideoUrls() {
-            const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
-            const monthVideos = getMonthVideos();
+            if (!data.monthVideos) data.monthVideos = {};
 
-            for (let day = 1; day <= daysInMonth; day++) {
-                const dateStr = `${currentYear}-${String(currentMonth).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-                const input = document.getElementById(`video_${dateStr}`);
-                if (input) {
-                    monthVideos[dateStr] = input.value.trim();
+            VIDEO_UPLOAD_MONTH_OFFSETS.forEach(offset => {
+                const { year: y, month: m } = resolveMonthByOffset(offset);
+                const monthKey = `${y}-${m}`;
+                if (!data.monthVideos[monthKey]) data.monthVideos[monthKey] = {};
+                const monthVideos = data.monthVideos[monthKey];
+                const daysInMonth = new Date(y, m, 0).getDate();
+
+                for (let day = 1; day <= daysInMonth; day++) {
+                    const dateStr = `${y}-${String(m).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+                    const input = document.getElementById(`video_${dateStr}`);
+                    if (input) {
+                        monthVideos[dateStr] = input.value.trim();
+                    }
                 }
-            }
+            });
 
             saveData();
             closeModal('videoUploadModal');
