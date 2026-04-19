@@ -498,7 +498,16 @@
             color: #e2e8f0;
             font-size: 14px;
             padding: 4px 0;
+            font-family: inherit;
+            line-height: 1.5;
+            resize: none;
+            overflow: hidden;
+            word-break: break-word;
+            white-space: pre-wrap;
+            min-height: 28px;
+            box-sizing: border-box;
         }
+        .issue-box textarea:focus { outline: none; }
 
         .cause-action-card {
             background: #0f172a;
@@ -536,21 +545,52 @@
             color: #e2e8f0;
             font-size: 14px;
             padding: 4px 0;
+            font-family: inherit;
+            line-height: 1.5;
+            resize: none;
+            overflow: hidden;
+            word-break: break-word;
+            white-space: pre-wrap;
+            min-height: 28px;
+            box-sizing: border-box;
+            width: 100%;
         }
         .cause-input:focus { outline: none; border-bottom-color: #6366f1; }
         .action-row {
             display: grid;
             grid-template-columns: 1fr 100px 120px 30px;
             gap: 8px;
-            align-items: center;
+            align-items: start;
             padding: 8px;
             background: #1e293b;
             border-radius: 6px;
             margin-top: 8px;
         }
         .action-row.completed { opacity: 0.5; }
-        .action-row input[type="text"] { background: transparent; border: none; color: #e2e8f0; }
-        .action-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: #22c55e; }
+        .action-row input[type="text"],
+        .action-row textarea {
+            background: transparent;
+            border: none;
+            color: #e2e8f0;
+            font-family: inherit;
+            font-size: 14px;
+            line-height: 1.5;
+            padding: 4px 2px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .action-row textarea {
+            resize: none;
+            overflow: hidden;
+            word-break: break-word;
+            white-space: pre-wrap;
+            min-height: 28px;
+        }
+        .action-row textarea:focus,
+        .action-row input[type="text"]:focus { outline: none; }
+        .action-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: #22c55e; margin-top: 6px; }
+        .action-row select { margin-top: 2px; }
+        .action-row input[type="text"]:not([placeholder="期限"]) { min-height: 28px; }
 
         .reason-grid {
             display: grid;
@@ -1485,11 +1525,11 @@
                         <h2>1番の数字課題</h2>
                         <div class="issue-box">
                             <label>数字課題</label>
-                            <input type="text" id="mainIssue" placeholder="例: 動員直クロ獲得に関して、日予算に対する日結果の達成率が25%と低い" onchange="saveReview()">
+                            <textarea id="mainIssue" rows="2" placeholder="例: 動員直クロ獲得に関して、日予算に対する日結果の達成率が25%と低い" onchange="saveReview()" oninput="autoGrowTextarea(this); markUserEditing();"></textarea>
                         </div>
                         <div class="issue-box cause">
                             <label>原因</label>
-                            <input type="text" id="mainCause" placeholder="例: テスクロ率：40%、オファー率9%と低い" onchange="saveReview()">
+                            <textarea id="mainCause" rows="2" placeholder="例: テスクロ率：40%、オファー率9%と低い" onchange="saveReview()" oninput="autoGrowTextarea(this); markUserEditing();"></textarea>
                         </div>
                     </div>
 
@@ -3989,6 +4029,9 @@
             renderCancels();
             renderDoinMuchaku();
             renderCauseActions();
+            // textareaの初期高さを内容に合わせて調整
+            autoGrowTextarea(document.getElementById('mainIssue'));
+            autoGrowTextarea(document.getElementById('mainCause'));
         }
 
         function saveReview() {
@@ -4360,8 +4403,8 @@
                     if (!a) return '';
                     return `
                     <div class="action-row ${a.done?'completed':''}">
-                        <input type="text" value="${esc(a.text)}" placeholder="施策を入力..." onchange="updateCauseAction(${i},${j},'text',this.value)">
-                        <input type="text" value="${esc(a.deadline)}" placeholder="期限" onchange="updateCauseAction(${i},${j},'deadline',this.value)">
+                        <textarea rows="1" placeholder="施策を入力..." onchange="updateCauseAction(${i},${j},'text',this.value)" oninput="autoGrowTextarea(this); markUserEditing();">${esc(a.text)}</textarea>
+                        <input type="text" value="${esc(a.deadline)}" placeholder="期限" onchange="updateCauseAction(${i},${j},'deadline',this.value)" oninput="markUserEditing()">
                         <select onchange="updateCauseAction(${i},${j},'method',this.value)">
                             <option value="">管理方法</option>
                             ${['チャット','Googleカレンダー','FB','録画振り返り','アポ','アラーム'].map(m => `<option value="${esc(m)}" ${a.method===m?'selected':''}>${esc(m)}</option>`).join('')}
@@ -4373,13 +4416,15 @@
                     <div class="cause-action-card ${i===0?'primary':''}">
                         <div class="cause-header">
                             <div class="cause-num ${i===0?'primary':''}">${i+1}</div>
-                            <input type="text" class="cause-input" value="${esc(ca.cause)}" placeholder="原因${i+1}を入力..." onchange="updateCause(${i},this.value)">
+                            <textarea class="cause-input" rows="1" placeholder="原因${i+1}を入力..." onchange="updateCause(${i},this.value)" oninput="autoGrowTextarea(this); markUserEditing();">${esc(ca.cause)}</textarea>
                         </div>
                         ${actionsHtml}
                         <button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="addCauseAction(${i})">+ 施策追加</button>
                     </div>
                 `;
             }).join('');
+            // 描画直後に全textareaの高さを内容に合わせて調整
+            autoGrowAllTextareas(document.getElementById('causeActionList'));
         }
 
         function updateCause(i, v) {
@@ -6641,8 +6686,30 @@
         function markUserEditing() {
             isUserEditing = true;
             if (userEditingTimer) clearTimeout(userEditingTimer);
-            userEditingTimer = setTimeout(() => { isUserEditing = false; }, 2000);
+            // 入力中のFirebase再描画を抑制するタイムアウト（長文入力でも途切れないよう5秒に延長）
+            userEditingTimer = setTimeout(() => { isUserEditing = false; }, 5000);
         }
+
+        // textareaの内容に応じて高さを自動調整（改行対応）
+        function autoGrowTextarea(el) {
+            if (!el) return;
+            el.style.height = 'auto';
+            el.style.height = (el.scrollHeight + 2) + 'px';
+        }
+
+        // ページ内すべてのtextareaの高さを再計算
+        function autoGrowAllTextareas(root) {
+            const scope = root || document;
+            scope.querySelectorAll('textarea').forEach(ta => autoGrowTextarea(ta));
+        }
+
+        // グローバル入力検知: あらゆるinput/textareaでの入力中はisUserEditingを立て、
+        // Firebaseリスナーによる全体再描画を抑制してフリーズ/リロードを防止
+        document.addEventListener('input', function(e) {
+            if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) {
+                markUserEditing();
+            }
+        }, true);
         // 軽量レンダリング用デバウンス（サマリー/メンバーテーブル/チャート）
         let lightRenderTimer = null;
         function debouncedLightRender() {
