@@ -2083,7 +2083,7 @@
         // 注意: 公開HTMLに平文で含まれるためソースを見れば誰でも閲覧可能
         // 起動条件: URLに ?admin=1 が付いた時のみ管理者として自動ログイン
         // それ以外のアクセスは通常のログイン画面が出る（メンバー用）
-        const ADMIN_EMAIL = 'namiyama1903@gmail.com';
+        const ADMIN_EMAIL = 'admin@3rdteam.local';  // Firebase内部識別子（実メアドと別、衝突回避用）
         const ADMIN_PASSWORD = 'Admin3rd_K8mN2Pq7vRz4';
         const ADMIN_NAME = '管理者';
         const ADMIN_AUTO_LOGIN = new URLSearchParams(window.location.search).get('admin') === '1';
@@ -2401,6 +2401,13 @@
 
         function setupAuthListener() {
             auth.onAuthStateChanged(async (user) => {
+                // ?admin=1 で来てるが、永続化されたユーザーが管理者と違う場合 → サインアウトして再ログイン
+                if (ADMIN_AUTO_LOGIN && user && user.email !== ADMIN_EMAIL) {
+                    try {
+                        await auth.signOut();
+                    } catch (e) { console.error('誤ったユーザーのサインアウト失敗:', e); }
+                    return; // onAuthStateChanged が再発火する
+                }
                 if (user) {
                     // ログイン済み
                     currentAuthUser = user;
