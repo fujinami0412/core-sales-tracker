@@ -2079,6 +2079,52 @@
         // チームパスワード（新規登録時のゲート用）
         const TEAM_PASSWORD = 'Cv6bL3yZ';
 
+        // === 管理者自動ログイン設定 ===
+        // 注意: 公開HTMLに平文で含まれるためソースを見れば誰でも閲覧可能
+        // 起動条件: URLに ?admin=1 が付いた時のみ管理者として自動ログイン
+        // それ以外のアクセスは通常のログイン画面が出る（メンバー用）
+        const ADMIN_EMAIL = 'namiyama1903@gmail.com';
+        const ADMIN_PASSWORD = 'Admin3rd_K8mN2Pq7vRz4';
+        const ADMIN_NAME = '管理者';
+        const ADMIN_AUTO_LOGIN = new URLSearchParams(window.location.search).get('admin') === '1';
+
+        async function ensureAdminLoggedIn() {
+            try {
+                await auth.signInWithEmailAndPassword(ADMIN_EMAIL, ADMIN_PASSWORD);
+            } catch (e) {
+                if (e.code === 'auth/user-not-found' || e.code === 'auth/invalid-credential' || e.code === 'auth/invalid-login-credentials') {
+                    try {
+                        await auth.createUserWithEmailAndPassword(ADMIN_EMAIL, ADMIN_PASSWORD);
+                    } catch (createErr) {
+                        console.error('管理者アカウント作成失敗:', createErr);
+                    }
+                } else {
+                    console.error('管理者自動ログイン失敗:', e);
+                }
+            }
+        }
+
+        async function autoLinkAsAdmin() {
+            const uid = currentAuthUser.uid;
+            let memberId = data.members.find(m => m.name === ADMIN_NAME)?.id;
+            if (!memberId) {
+                memberId = 'mem_admin_' + Date.now();
+                data.members.push({ id: memberId, name: ADMIN_NAME });
+                await database.ref('teams/' + TEAM_ID + '/members').set(data.members);
+            }
+            const entry = {
+                memberId: memberId,
+                email: ADMIN_EMAIL,
+                isAdmin: true,
+                linkedAt: Date.now()
+            };
+            await database.ref('teams/' + TEAM_ID + '/userMap/' + uid).set(entry);
+            userMap[uid] = entry;
+            currentMemberId = memberId;
+            isAdmin = true;
+        }
+
+
         // --- Firebase Auth 関数群 ---
 
         function showAuthError(msg) {
@@ -2395,6 +2441,13 @@
                         document.getElementById('mainContainer').style.display = 'block';
                         updateHeaderUserInfo();
                         await initApp();
+                    } else if (ADMIN_AUTO_LOGIN && user.email === ADMIN_EMAIL) {
+                        // ?admin=1 で管理者として自動ログイン中 → 自動紐付け
+                        await autoLinkAsAdmin();
+                        document.getElementById('authModal').style.display = 'none';
+                        document.getElementById('mainContainer').style.display = 'block';
+                        updateHeaderUserInfo();
+                        await initApp();
                     } else {
                         // マッピングなし → メンバー紐付け画面
                         showMemberLinkForm();
@@ -2405,14 +2458,21 @@
                         showLoginForm();
                     }
                 } else {
-                    // 未ログイン → ログイン画面
+                    // 未ログイン
                     currentAuthUser = null;
                     currentMemberId = null;
                     isAdmin = false;
                     adminEditMode = false;
                     document.getElementById('mainContainer').style.display = 'none';
-                    document.getElementById('authModal').style.display = 'flex';
-                    showLoginForm();
+                    if (ADMIN_AUTO_LOGIN) {
+                        // ?admin=1 → 管理者として自動ログイン（モーダル非表示）
+                        document.getElementById('authModal').style.display = 'none';
+                        await ensureAdminLoggedIn();
+                        // ログイン成功後onAuthStateChangedが再発火する
+                    } else {
+                        document.getElementById('authModal').style.display = 'flex';
+                        showLoginForm();
+                    }
                 }
             });
         }
