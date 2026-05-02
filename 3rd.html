@@ -2077,12 +2077,13 @@
         }
 
         // チームパスワード（新規登録時のゲート用）
-        const TEAM_PASSWORD = 'Cv6bL3yZ';
+        const TEAM_PASSWORD = 'zGsgpQAUM5';
 
         // === 管理者自動ログイン設定 ===
         // 注意: 公開HTMLに平文で含まれるためソースを見れば誰でも閲覧可能
-        // 起動条件: URLに ?admin=1 が付いた時のみ自動ログイン
-        const ADMIN_EMAIL = 'admin@3rdteam.local';
+        // 起動条件: URLに ?admin=1 が付いた時のみ管理者として自動ログイン
+        // それ以外のアクセスは通常のログイン画面が出る（メンバー用）
+        const ADMIN_EMAIL = 'namiyama1903@gmail.com';
         const ADMIN_PASSWORD = 'Admin3rd_K8mN2Pq7vRz4';
         const ADMIN_NAME = '管理者';
         const ADMIN_AUTO_LOGIN = new URLSearchParams(window.location.search).get('admin') === '1';
