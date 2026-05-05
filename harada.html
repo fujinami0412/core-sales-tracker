@@ -6464,8 +6464,63 @@
         let saveTimer = null;
         let isSaving = false;
 
+        // === 保存エラー耐性 ===
+        // alert乱発を防止し、自動リトライ・オフライン復帰再送・永続障害バナーを実装
+        let saveErrorCount = 0;
+        let saveRetryTimer = null;
+        let saveRetryDelayMs = 1000;
+        const SAVE_RETRY_MAX_MS = 60000;
+        let saveErrorBannerShown = false;
+
+        function showSaveErrorBanner(message) {
+            let banner = document.getElementById('saveErrorBanner');
+            if (!banner) {
+                banner = document.createElement('div');
+                banner.id = 'saveErrorBanner';
+                banner.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#dc2626;color:#fff;padding:10px 16px;text-align:center;font-size:13px;font-weight:600;z-index:99999;box-shadow:0 2px 8px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;gap:12px';
+                const span = document.createElement('span');
+                span.id = 'saveErrorBannerText';
+                banner.appendChild(span);
+                const closeBtn = document.createElement('button');
+                closeBtn.textContent = '×';
+                closeBtn.style.cssText = 'background:rgba(255,255,255,0.25);border:none;color:#fff;width:24px;height:24px;border-radius:4px;cursor:pointer;font-size:16px;line-height:1';
+                closeBtn.onclick = () => { banner.remove(); saveErrorBannerShown = false; };
+                banner.appendChild(closeBtn);
+                document.body.appendChild(banner);
+            }
+            const span = document.getElementById('saveErrorBannerText');
+            if (span) span.textContent = message;
+            saveErrorBannerShown = true;
+        }
+        function hideSaveErrorBanner() {
+            const banner = document.getElementById('saveErrorBanner');
+            if (banner) banner.remove();
+            saveErrorBannerShown = false;
+        }
+        function resetSaveErrorState() {
+            saveErrorCount = 0;
+            saveRetryDelayMs = 1000;
+            if (saveRetryTimer) { clearTimeout(saveRetryTimer); saveRetryTimer = null; }
+            hideSaveErrorBanner();
+        }
+        window.addEventListener('online', () => {
+            if (firebaseInitialized && (saveErrorCount > 0 || saveRetryTimer)) {
+                saveRetryDelayMs = 1000;
+                if (saveRetryTimer) { clearTimeout(saveRetryTimer); saveRetryTimer = null; }
+                saveToFirebase();
+            }
+        });
+        window.addEventListener('offline', () => {
+            const text = document.getElementById('syncText');
+            const dot = document.getElementById('syncDot');
+            if (text) text.textContent = '📡 オフライン（復帰時に自動同期）';
+            if (dot) dot.className = 'sync-dot offline';
+        });
+
         function saveToFirebase() {
             if (!firebaseInitialized) return;
+            // 既存のリトライタイマーは新しい入力で取り消す（重複保存防止）
+            if (saveRetryTimer) { clearTimeout(saveRetryTimer); saveRetryTimer = null; }
             // デバウンス: 800ms以内の連続呼び出しをまとめる
             const text = document.getElementById('syncText');
             const dot = document.getElementById('syncDot');
@@ -6559,7 +6614,7 @@
                     debugSaveCount++;
                     const el = document.getElementById('debugSaveCount');
                     if (el) el.textContent = '送信: ' + debugSaveCount + '回';
-                    
+                    if (result.committed) resetSaveErrorState();
                     if (text) text.textContent = '✓ 保存完了';
                     if (dot) dot.className = 'sync-dot';
                     setTimeout(() => { updateSyncStatus(); }, 2000);
@@ -6567,9 +6622,37 @@
                 .catch(err => {
                     isSaving = false;
                     console.error('Firebase保存エラー:', err);
-                    if (text) text.textContent = '❌ 保存エラー';
+                    saveErrorCount++;
+                    const offline = !navigator.onLine;
+                    const code = (err && (err.code || err.message || '')).toString();
+                    const isPermission = /PERMISSION_DENIED|permission_denied|permission denied/i.test(code);
+                    const isMaxRetry = /maxretry/i.test(code);
+
+                    if (text) {
+                        if (offline) text.textContent = '📡 オフライン（復帰時に自動同期）';
+                        else if (isPermission) text.textContent = '⚠️ 権限エラー';
+                        else text.textContent = '⚠️ 再試行中… (' + saveErrorCount + ')';
+                    }
                     if (dot) dot.className = 'sync-dot offline';
-                    alert('保存エラー: ' + err.message);
+
+                    if (isPermission) {
+                        showSaveErrorBanner('⚠️ 保存権限エラー: 一度ログアウトして再ログインしてください。データはローカルに保存されています。');
+                        return;
+                    }
+
+                    if (saveErrorCount === 5 && !saveErrorBannerShown) {
+                        showSaveErrorBanner('⚠️ 保存に失敗しています。データはローカル保存済みです。ネットワーク復旧後に自動で再送信します。');
+                    }
+
+                    if (!offline) {
+                        if (saveRetryTimer) clearTimeout(saveRetryTimer);
+                        const delay = isMaxRetry ? Math.min(saveRetryDelayMs, 3000) : saveRetryDelayMs;
+                        saveRetryTimer = setTimeout(() => {
+                            saveRetryTimer = null;
+                            saveRetryDelayMs = Math.min(saveRetryDelayMs * 2, SAVE_RETRY_MAX_MS);
+                            saveToFirebase();
+                        }, delay);
+                    }
                 });
         }
 
