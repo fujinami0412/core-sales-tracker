@@ -6672,17 +6672,22 @@
                 })
                 .catch(err => {
                     isSaving = false;
-                    console.error('Firebase保存エラー:', err);
-                    saveErrorCount++;
                     const offline = !navigator.onLine;
                     const code = (err && (err.code || err.message || '')).toString();
                     const isPermission = /PERMISSION_DENIED|permission_denied|permission denied/i.test(code);
                     const isMaxRetry = /maxretry/i.test(code);
+                    // maxretry(複数ユーザー同時編集時のトランザクション競合)は通常運用で発生するため、
+                    // ユーザーに見せるエラーカウントには含めない(内部リトライは継続)
+                    if (!isMaxRetry) {
+                        console.error('Firebase保存エラー:', err);
+                        saveErrorCount++;
+                    }
 
                     if (text) {
                         if (offline) text.textContent = '📡 オフライン（復帰時に自動同期）';
                         else if (isPermission) text.textContent = '⚠️ 権限エラー';
-                        else text.textContent = '⚠️ 再試行中… (' + saveErrorCount + ')';
+                        else if (isMaxRetry) text.textContent = '🔄 同期中…';
+                        else text.textContent = '🔄 再試行中…';
                     }
                     if (dot) dot.className = 'sync-dot offline';
 
@@ -6692,9 +6697,9 @@
                         return;
                     }
 
-                    // 連続失敗が一定回数を超えたら一度だけバナー表示
-                    if (saveErrorCount === 5 && !saveErrorBannerShown) {
-                        showSaveErrorBanner('⚠️ 保存に失敗しています。データはローカル保存済みです。ネットワーク復旧後に自動で再送信します。');
+                    // 持続的な障害のときだけバナーを一度だけ表示(maxretryはカウント外)
+                    if (saveErrorCount >= 15 && !saveErrorBannerShown) {
+                        showSaveErrorBanner('💾 同期に時間がかかっています（入力内容はローカルに保存済みです）。自動で再試行を続けています…');
                     }
 
                     // オフラインなら online イベントで再送するためタイマー不要
