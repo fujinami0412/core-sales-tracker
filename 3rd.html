@@ -1195,15 +1195,15 @@
                     </select>
                 </div>
                 <div class="period-toggle">
-                    <button class="period-btn active" id="btnWeek" onclick="setViewPeriod('week')">週次</button>
-                    <button class="period-btn" id="btnMonth" onclick="setViewPeriod('month')">全日</button>
+                    <button class="period-btn" id="btnWeek" onclick="setViewPeriod('week')">週次</button>
+                    <button class="period-btn active" id="btnMonth" onclick="setViewPeriod('month')">月次</button>
                 </div>
-                <div class="week-nav" id="weekNav">
+                <div class="week-nav" id="weekNav" style="display:none;">
                     <button onclick="prevWeek()">◀</button>
                     <span id="weekLabel">1/17〜1/23（第3週）</span>
                     <button onclick="nextWeek()">▶</button>
                 </div>
-                <div class="week-nav" id="monthSelector" style="display:none;">
+                <div class="week-nav" id="monthSelector">
                     <button onclick="prevMonth()">◀</button>
                     <span id="monthLabel">2026年1月</span>
                     <button onclick="nextMonth()">▶</button>
@@ -1957,6 +1957,12 @@
 
         // ページ状態をlocalStorageから復元
         const savedState = JSON.parse(localStorage.getItem(STATE_KEY) || '{}');
+        // 月次表示への一回限りの移行（既存ユーザーで週次が保存されている場合に上書き）
+        if (!savedState.periodMigratedToMonth) {
+            savedState.viewPeriod = 'month';
+            savedState.periodMigratedToMonth = true;
+            localStorage.setItem(STATE_KEY, JSON.stringify(savedState));
+        }
         const now = new Date();
         let currentYear = savedState.year || now.getFullYear();
         let currentMonth = savedState.month || (now.getMonth() + 1);
@@ -1966,7 +1972,7 @@
         let syncStatus = 'local';
         let nippoViewMode = 'all'; // 'all' or 'single'
         let nippoSelectedMember = '';
-        let viewPeriod = savedState.viewPeriod || 'week'; // 'week' or 'month'
+        let viewPeriod = savedState.viewPeriod || 'month'; // 'week' or 'month'
 
         // Firebase Auth 関連
         let currentAuthUser = null;   // firebase.User
@@ -2014,7 +2020,8 @@
                 month: currentMonth,
                 week: currentWeekNum,
                 member: selectedMember,
-                viewPeriod: viewPeriod
+                viewPeriod: viewPeriod,
+                periodMigratedToMonth: true
             }));
         }
 
