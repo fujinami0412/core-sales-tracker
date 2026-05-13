@@ -6852,6 +6852,17 @@
                 // （ユーザーが数値を変更した直後にFirebaseの古い値で上書きされるのを防ぐ）
                 if (isSaving || saveTimer) return;
 
+                // 自分の書き込みがFirebaseから戻ってきた場合（lastUpdated完全一致）は再描画不要
+                // 月次表示で1800+のinput要素を再生成してフリーズする問題への対策
+                if (data.lastUpdated && firebaseData.lastUpdated && data.lastUpdated === firebaseData.lastUpdated) {
+                    debugListenerCount++;
+                    const dp = document.getElementById('debugPanel');
+                    if (dp) dp.style.display = 'block';
+                    const el2 = document.getElementById('debugListenerCount');
+                    if (el2) el2.textContent = '受信: ' + debugListenerCount + '回(自己エコー)';
+                    return;
+                }
+
                 // ローカルの方がFirebaseより新しい場合（ページ離脱前に保存が間に合わなかったケース）
                 // ※ ただし空データや初期化直後のデータでFirebaseを上書きしないよう保護
                 if (data.lastUpdated &&
