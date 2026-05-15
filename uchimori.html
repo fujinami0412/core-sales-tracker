@@ -3991,6 +3991,27 @@
 
         function renderDailyInputMonth() {
             const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
+            // OOM対策: 月次×「全体」選択でメンバー多数だと入力欄が3000+生成されてブラウザがクラッシュする
+            // メンバー2人超のときは1人ずつ表示するよう案内する
+            if (selectedMember === 'all' && data.members.length > 2) {
+                const targetId = currentMemberId || (data.members[0] && data.members[0].id);
+                const target = data.members.find(m => m.id === targetId) || data.members[0];
+                const onclickShow = target
+                    ? `var s=document.getElementById('memberSelect');s.value='${target.id}';onMemberChange();`
+                    : '';
+                document.getElementById('dailyInputArea').innerHTML =
+                    '<div style="padding:24px;background:#1e293b;border-radius:8px;margin:16px 0;border:1px solid #475569">' +
+                    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;color:#fbbf24;font-weight:600;font-size:15px">' +
+                    '📊 月次表示はメンバーを1人ずつ選んでください</div>' +
+                    '<div style="font-size:13px;color:#94a3b8;line-height:1.7;margin-bottom:16px">' +
+                    '全体表示で月次を開くと入力欄が大量に生成されブラウザがメモリ不足でクラッシュします。<br>' +
+                    'メンバーを個別に選択するか、週次表示に戻してください。</div>' +
+                    '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+                    (target ? '<button onclick="' + onclickShow + '" style="padding:8px 16px;background:#6366f1;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600">' + target.name + 'を表示</button>' : '') +
+                    '<button onclick="setViewPeriod(\'week\')" style="padding:8px 16px;background:#475569;color:#fff;border:none;border-radius:6px;cursor:pointer">週次に戻す</button>' +
+                    '</div></div>';
+                return;
+            }
             const members = selectedMember === 'all' ? data.members : data.members.filter(m => m.id === selectedMember);
 
             // 月次表示用のグリッドスタイル
@@ -6685,7 +6706,7 @@
                     }
 
                     // 持続的な障害のときだけバナーを一度だけ表示(maxretryはカウント外)
-                    if (saveErrorCount >= 15 && !saveErrorBannerShown) {
+                    if (saveErrorCount >= 30 && !saveErrorBannerShown) {
                         showSaveErrorBanner('💾 同期に時間がかかっています（入力内容はローカルに保存済みです）。自動で再試行を続けています…');
                     }
 
