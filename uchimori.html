@@ -2512,6 +2512,15 @@
 
         async function initApp() {
             // loadData()はsetupAuthListenerで既に実行済み。ここで再度呼ぶとFirebaseデータをlocalStorageで上書きしてしまう
+            // OOM対策: 既定の'all'はメンバー多数で月次×全体描画が重く、ブラウザがクラッシュする
+            // 初回ロード時、メンバー2人以上で'all'のままなら自分のメンバー（または先頭メンバー）に自動切替
+            if (selectedMember === 'all' && data.members && data.members.length > 1) {
+                const fallback = currentMemberId || (data.members[0] && data.members[0].id);
+                if (fallback) {
+                    selectedMember = fallback;
+                    try { savePageState(); } catch(e) {}
+                }
+            }
             setupFirebaseListener();
             updateWeekLabel();
             updateSyncStatus();
@@ -3933,6 +3942,27 @@
                 return;
             }
 
+            // OOM対策: 週次×「全体」でもメンバー4人以上だと入力欄が500+生成され低性能端末でクラッシュする
+            // メンバー4人以上のときは1人ずつ表示するよう案内する
+            if (selectedMember === 'all' && data.members.length > 3) {
+                const targetId = currentMemberId || (data.members[0] && data.members[0].id);
+                const target = data.members.find(m => m.id === targetId) || data.members[0];
+                const onclickShow = target
+                    ? `var s=document.getElementById('memberSelect');s.value='${target.id}';onMemberChange();`
+                    : '';
+                document.getElementById('dailyInputArea').innerHTML =
+                    '<div style="padding:24px;background:#1e293b;border-radius:8px;margin:16px 0;border:1px solid #475569">' +
+                    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;color:#fbbf24;font-weight:600;font-size:15px">' +
+                    '👥 メンバーを1人ずつ選んでください</div>' +
+                    '<div style="font-size:13px;color:#94a3b8;line-height:1.7;margin-bottom:16px">' +
+                    '全体表示は入力欄が大量に生成されてブラウザが重く（最悪クラッシュ）なります。<br>' +
+                    'メンバーを個別に選択して入力してください。サマリーは「全体」でも見られます。</div>' +
+                    '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+                    (target ? '<button onclick="' + onclickShow + '" style="padding:8px 16px;background:#6366f1;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600">' + target.name + 'を表示</button>' : '') +
+                    '</div></div>';
+                return;
+            }
+
             const dates = getWeekDates();
             const days = ['土','日','月','火','水','木','金'];
 
@@ -3992,8 +4022,8 @@
         function renderDailyInputMonth() {
             const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
             // OOM対策: 月次×「全体」選択でメンバー多数だと入力欄が3000+生成されてブラウザがクラッシュする
-            // メンバー2人超のときは1人ずつ表示するよう案内する
-            if (selectedMember === 'all' && data.members.length > 2) {
+            // メンバー2人以上のときは1人ずつ表示するよう案内する（2人でも1100+のinput要素になりOOMに至るケースあり）
+            if (selectedMember === 'all' && data.members.length > 1) {
                 const targetId = currentMemberId || (data.members[0] && data.members[0].id);
                 const target = data.members.find(m => m.id === targetId) || data.members[0];
                 const onclickShow = target
